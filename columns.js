@@ -46,11 +46,40 @@ class Region{
 				}
 			}
 		}
+
+
+		for(let c of activeCols){
+			let anyPredictive = false
+			for(let i of c.cells){
+				i.prevPredictiveState = i.predictiveState
+				if(i.predictiveState){
+					i.activeState = true
+					anyPredictive = true
+				}
+			}
+			if(!anyPredictive){
+				for(let i of c.cells) i.activeState = true
+			}
+			//todo: set learnState
+		}
+		for(let c of activeCols){
+			for(let i of c.cells){
+				let actives = 0
+				for(let s of i.syns){
+					if(s.otherSide.activeState) actives++
+				}
+				i.predictiveState = actives>this.synActiveThreshold
+				if(actives>this.synActiveThreshold){
+					c.updateCellSynPermenance(i)
+				}
+				//todo connect to previous active cells
+			}
+		}
 	}
 }
 class Col{
 	potentialSyns = []
-	sourceInput = 0
+	sourceInput = 0//todo
 	overlap
 	boost = 1
 	activeDutyCycle = 0
@@ -59,10 +88,13 @@ class Col{
 	overlapDutyCycle = 0
 	overlapDutyCycleAvg = new Array(20)
 	overlapDutyCycleAvgOffset = 0
+	cells = []
+	learnState = false
 	constructor(region){
 		for(let i=0; i<region.colCount; i++){
-			this.potentialSyns.push({permenance:Math.random()*0.1-0.05+region.connectedPermenance, active:false})
+			this.potentialSyns.push({permenance:Math.random()*0.1-0.05+region.connectedPermenance, active:false}) //todo: make active change
 		}
+		for(let i=0; i<region.cellsPerColumn; i++) this.cells.push({predictiveState:false,prevPredictiveState:false,activeState:false,syns:[]})//todo: add to syns
 	}
 	updateActiveDutyCycle(activeCols){
 		this.activeDutyCycle -= this.activeDutyCycleAvg[this.activeDutyCycleAvgOffset]
@@ -80,6 +112,18 @@ class Col{
 		this.overlapDutyCycleAvgOffset++
 		if(this.overlapDutyCycleAvgOffset >= this.overlapDutyCycleAvg.length){
 			this.overlapDutyCycleAvgOffset = this.overlapDutyCycleAvg.length
+		}
+	}
+	updateCellSynPermenance(i){
+		if(this.learnState){
+			for(let s of i.syns){
+				if(s.otherSide.activeState) s.permenance += this.permenanceInc
+				else s.permenance -= this.permenanceDec
+			}
+		}else if(!i.predictiveState && i.prevPredictiveState){
+			for(let s of i.syns){
+				if(s.otherSide.activeState) s.permenance -= this.permenanceDec
+			}
 		}
 	}
 }
