@@ -1,18 +1,28 @@
 class Region{
 	cols = []
+	colCount
+	potentialRadius = 1
+	connectedPermenance = 0.2
+	minOverlap//=
+	desiredLocalActivity
+	permenanceDec = 0.008
+	permenanceInc = 0.05
+	synActiveThreshold = 15
+	cellsPerColumn = 4
 	constructor(options){
+		this.minOverlap = options.potentialRadius*0.1
 		Object.assign(this,options)
 		for(let i=0; i<this.colCount; i++){
-			this.cols.push(new Col(this))
+			this.cols.push(new Col(this,i))
 		}
 	}
-	tick(){
+	tick(input){
 		let neighbours = this.cols
 		for(let c of this.cols){
 			let overlap = 0
-			for(let i of c.synPermenances){
+			for(let i of c.potentialSyns){
 				if(i>this.connectedPermenance){
-					overlap += i.sourceInput
+					overlap += input[i.otherSide]
 				}
 			}
 			if(overlap < this.minOverlap) overlap = 0
@@ -20,13 +30,15 @@ class Region{
 			c.overlap = overlap
 		}
 		let activeCols = []
-		let minLocalActivity = nthLargest(neighbours,this.desiredLocalActivity)
+		let neighboursOverlap = []
+		for(let n of neighbours) neighboursOverlap.push(n.overlap)
+		let minLocalActivity = nthLargest(neighboursOverlap,this.desiredLocalActivity)
 		for(let c of this.cols){
 			if(c.overlap > 0 && c.overlap >= minLocalActivity) activeCols.push(c)
 		}
 		for(let c of activeCols){
 			for(let s of c.potentialSyns){
-				if(s.active){
+				if(input[i.otherSide]){
 					s.permenance = Math.min(s.permenance+this.permenanceInc, 1)
 				}else{
 					s.permenance = Math.max(s.permenance-this.permenanceDec, 0)
@@ -42,13 +54,14 @@ class Region{
 			c.updateOverlapDutyCycle()
 			if(c.overlapDutyCycle < c.minDutyCycle){
 				for(let s of c){
-					s.permenance *= 1+0.1*this.connectedPermenance
+					s.permenance += 0.1*this.connectedPermenance
 				}
 			}
 		}
+		console.log(this.cols.reduce((a,b)=>a+b.overlap+" "+b.boost+" : "+b.potentialSyns.reduce((a,c)=>a+c.permenance.toFixed(3)+" "+(input[c.otherSide]?"true ":"false")+" | ","")+"\n","")+"\n\n")
 
 
-		for(let c of activeCols){
+		/*for(let c of activeCols){
 			let anyPredictive = false
 			for(let i of c.cells){
 				i.prevPredictiveState = i.predictiveState
@@ -56,6 +69,7 @@ class Region{
 				if(i.predictiveState){
 					i.activeState = true
 					anyPredictive = true
+					if(){}
 				}
 			}
 			if(!anyPredictive){
@@ -66,20 +80,19 @@ class Region{
 			for(let i of c.cells){
 				let actives = 0
 				for(let s of i.syns){
-					if(s.otherSide.activeState) actives++
+					if(this.cols[s.otherSide].cells[s.otherSide1].activeState) actives++
 				}
 				i.predictiveState = actives>this.synActiveThreshold
 				if(actives>this.synActiveThreshold){
-					c.updateCellSynPermenance(i)
+					c.adaptSyns(i,this)
 				}
 				//todo connect to previous active cells
 			}
-		}
+		}*/
 	}
 }
 class Col{
 	potentialSyns = []
-	sourceInput = 0//todo
 	overlap
 	boost = 1
 	activeDutyCycle = 0
@@ -89,12 +102,12 @@ class Col{
 	overlapDutyCycleAvg = new Array(20)
 	overlapDutyCycleAvgOffset = 0
 	cells = []
-	constructor(region){
-		for(let i=0; i<region.colCount; i++){
-			this.potentialSyns.push({permenance:Math.random()*0.1-0.05+region.connectedPermenance, active:false}) //todo: make active change
+	constructor(region,x){
+		for(let i=Math.max(x-region.potentialRadius,0); i<=Math.min(x+region.potentialRadius,region.colCount-1); i++){
+			this.potentialSyns.push({permenance:Math.random()*0.1-0.05+region.connectedPermenance, otherSide:i})
 		}
 		for(let i=0; i<region.cellsPerColumn; i++){
-			this.cells.push({predictiveState:false,prevPredictiveState:false,activeState:false,prevActiveState:false,syns:[]})//todo: add to syns
+			this.cells.push({predictiveState:false,prevPredictiveState:false,activeState:false,prevActiveState:false,learnState:false,syns:[]})//todo: add to syns
 		}
 	}
 	updateActiveDutyCycle(activeCols){
@@ -115,12 +128,12 @@ class Col{
 			this.overlapDutyCycleAvgOffset = this.overlapDutyCycleAvg.length
 		}
 	}
-	updateCellSynPermenance(i){
+	adaptSyns(i,region){//todo change back
 		if(i.predictiveState && !i.prevPredictiveState){
 			for(let s of i.syns){
-				if(s.otherSide.activeState) s.temporaryPermanence = this.permenanceInc
-				else s.temporaryPermanence = -this.permenanceDec
-				s.permenance += s.temporaryPermanence
+				if(region.cols[s.otherSide].cells[s.otherSide1].activeState) s.temporaryPermanence = region.permenanceInc
+				else s.temporaryPermanence = -region.permenanceDec
+				s.permenance += s.temporaryPermanence//todo: clamp to 0 1
 			}
 		}else if(i.activeState && !i.prevActiveState){
 			for(let s of i.syns){
@@ -174,3 +187,7 @@ nthLargest = function(list, n) {
   return list[a];
 }
 }
+
+
+let r=new Region({colCount:2,minOverlap:12321/*??*/,cellsPerColumn:2})
+r.tick([0,1])
