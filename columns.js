@@ -4,13 +4,12 @@ class Region{
 	potentialRadius = 1
 	connectedPermenance = 0.2
 	minOverlap//=
-	desiredLocalActivity
 	permenanceDec = 0.008
 	permenanceInc = 0.05
 	synActiveThreshold = 15
 	cellsPerColumn = 4
 	constructor(options){
-		this.minOverlap = options.potentialRadius*0.1
+		this.minOverlap = (options.potentialRadius ?? this.potentialRadius)*0.1
 		Object.assign(this,options)
 		for(let i=0; i<this.colCount; i++){
 			this.cols.push(new Col(this,i))
@@ -21,24 +20,23 @@ class Region{
 		for(let c of this.cols){
 			let overlap = 0
 			for(let i of c.potentialSyns){
-				if(i>this.connectedPermenance){
+				if(i.permenance>this.connectedPermenance){
 					overlap += input[i.otherSide]
 				}
 			}
-			if(overlap < this.minOverlap) overlap = 0
-			else overlap *= c.boost
+			overlap *= c.boost
 			c.overlap = overlap
 		}
 		let activeCols = []
 		let neighboursOverlap = []
-		for(let n of neighbours) neighboursOverlap.push(n.overlap)
-		let minLocalActivity = nthLargest(neighboursOverlap,this.desiredLocalActivity)
+		for(let n of neighbours) neighboursOverlap = Math.max(neighboursOverlap,n.overlap)
+		let minLocalActivity = neighboursOverlap
 		for(let c of this.cols){
-			if(c.overlap > 0 && c.overlap >= minLocalActivity) activeCols.push(c)
+			if(c.overlap > this.minOverlap && c.overlap >= minLocalActivity) activeCols.push(c)
 		}
 		for(let c of activeCols){
 			for(let s of c.potentialSyns){
-				if(input[i.otherSide]){
+				if(input[s.otherSide]){
 					s.permenance = Math.min(s.permenance+this.permenanceInc, 1)
 				}else{
 					s.permenance = Math.max(s.permenance-this.permenanceDec, 0)
@@ -47,18 +45,18 @@ class Region{
 		}
 		let maxActiveDutyCycle = 0
 		for(let n of neighbours) maxActiveDutyCycle = Math.max(maxActiveDutyCycle,n.activeDutyCycle)
-		for(let c of activeCols){
+		for(let c of this.cols){
 			c.minDutyCycle = 0.01*maxActiveDutyCycle
-			c.updateActiveDutyCycle()
-			c.boost = Math.max(c.minDutyCycle / c.activeDutyCycle, 1)
-			c.updateOverlapDutyCycle()
-			if(c.overlapDutyCycle < c.minDutyCycle){
-				for(let s of c){
-					s.permenance += 0.1*this.connectedPermenance
+			c.updateActiveDutyCycle(activeCols)
+			//c.boost = c.minDutyCycle/c.activeDutyCycle
+			c.updateOverlapDutyCycle(this)
+			if(c.overlapDutyCycle === 0 || c.overlapDutyCycle < c.minDutyCycle){
+				for(let s of c.potentialSyns){
+					s.permenance = Math.min(s.permenance+0.1*this.connectedPermenance, 1)
 				}
 			}
 		}
-		console.log(this.cols.reduce((a,b)=>a+b.overlap+" "+b.boost+" : "+b.potentialSyns.reduce((a,c)=>a+c.permenance.toFixed(3)+" "+(input[c.otherSide]?"true ":"false")+" | ","")+"\n","")+"\n\n")
+		console.log(this.cols.reduce((a,b)=>a+(activeCols.includes(b))+" "+b.overlap+" "+b.boost+" : | "+b.potentialSyns.reduce((a,c)=>a+c.permenance.toFixed(3)+" "+(input[c.otherSide]?"true ":"false")+" | ","")+"\n",""))
 
 
 		/*for(let c of activeCols){
@@ -96,10 +94,10 @@ class Col{
 	overlap
 	boost = 1
 	activeDutyCycle = 0
-	activeDutyCycleAvg = new Array(20)
+	activeDutyCycleAvg = new Array(20).fill(0)
 	activeDutyCycleAvgOffset = 0
 	overlapDutyCycle = 0
-	overlapDutyCycleAvg = new Array(20)
+	overlapDutyCycleAvg = new Array(20).fill(0)
 	overlapDutyCycleAvgOffset = 0
 	cells = []
 	constructor(region,x){
@@ -116,7 +114,7 @@ class Col{
 		this.activeDutyCycle += this.activeDutyCycleAvg[this.activeDutyCycleAvgOffset]
 		this.activeDutyCycleAvgOffset++
 		if(this.activeDutyCycleAvgOffset >= this.activeDutyCycleAvg.length){
-			this.activeDutyCycleAvgOffset = this.activeDutyCycleAvg.length
+			this.activeDutyCycleAvgOffset = 0
 		}
 	}
 	updateOverlapDutyCycle(region){
@@ -125,7 +123,7 @@ class Col{
 		this.overlapDutyCycle += this.overlapDutyCycleAvg[this.overlapDutyCycleAvgOffset]
 		this.overlapDutyCycleAvgOffset++
 		if(this.overlapDutyCycleAvgOffset >= this.overlapDutyCycleAvg.length){
-			this.overlapDutyCycleAvgOffset = this.overlapDutyCycleAvg.length
+			this.overlapDutyCycleAvgOffset = 0
 		}
 	}
 	adaptSyns(i,region){//todo change back
@@ -189,5 +187,10 @@ nthLargest = function(list, n) {
 }
 
 
-let r=new Region({colCount:2,minOverlap:12321/*??*/,cellsPerColumn:2})
-r.tick([0,1])
+let r=new Region({colCount:2,cellsPerColumn:2})
+let i=0
+setInterval(()=>{
+	r.tick(i<10?[1,0]:i<20?[0,1]:[0,0])
+	console.log(i)
+	i++
+},1000)
