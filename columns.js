@@ -50,7 +50,7 @@ class Region{
 			c.updateActiveDutyCycle(activeCols)
 			//c.boost = c.minDutyCycle/c.activeDutyCycle
 			c.updateOverlapDutyCycle(this)
-			if(c.overlapDutyCycle === 0 || c.overlapDutyCycle < c.minDutyCycle){
+			if(c.overlapDutyCycle < c.minDutyCycle){
 				for(let s of c.potentialSyns){
 					s.permenance = Math.min(s.permenance+0.1*this.connectedPermenance, 1)
 				}
@@ -94,7 +94,7 @@ class Col{
 	overlap
 	boost = 1
 	activeDutyCycle = 0
-	activeDutyCycleAvg = new Array(20).fill(0)
+	activeDutyCycleAvg = new Array(20).fill(0) //todo: 20 should be changed to 1000
 	activeDutyCycleAvgOffset = 0
 	overlapDutyCycle = 0
 	overlapDutyCycleAvg = new Array(20).fill(0)
@@ -187,10 +187,10 @@ nthLargest = function(list, n) {
 }
 
 
-let r=new Region({colCount:2,cellsPerColumn:2})
+let r=new Region({colCount:4,cellsPerColumn:2})
 let i=0
 setInterval(()=>{
-	r.tick(i<10?[1,0]:i<20?[0,1]:[0,0])
+	r.tick(i<10?[1,0,0,1]:i<20?[0,1,1,0]:[0,0,0,0])
 	console.log(i)
 	i++
 },1000)

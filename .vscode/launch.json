@@ -5,8 +5,8 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "Launch Program",
-			"program": "${workspaceFolder}/columns.js",
+			"name": "Launch certain Program",
+			"program": "${workspaceFolder}/columns-v2.js",
 			"request": "launch",
 			"skipFiles": [
 				"<node_internals>/**"
