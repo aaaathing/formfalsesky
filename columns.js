@@ -1,4 +1,4 @@
-class Region{
+class LayerSP{
 	cols = []
 	colCount
 	potentialRadius = 1
@@ -7,13 +7,11 @@ class Region{
 	permenanceDec = 0.008
 	permenanceInc = 0.05
 	desiredLocalActivity
-	synActiveThreshold = 15
-	cellsPerColumn = 4
 	constructor(options){
 		this.minOverlap = (options.potentialRadius ?? this.potentialRadius)*0.1
 		Object.assign(this,options)
 		for(let i=0; i<this.colCount; i++){
-			this.cols.push(new Col(this,i))
+			this.cols.push(new ColSP(this,i))
 		}
 	}
 	tick(input){
@@ -29,11 +27,19 @@ class Region{
 			c.overlap = overlap
 		}
 		let activeCols = []
+		let allColsActive = []
+		allColsActive.length = this.cols.length
 		let neighboursOverlap = []
 		for(let n of neighbours) neighboursOverlap.push(n.overlap)
 		let minLocalActivity = nthLargest(neighboursOverlap,this.desiredLocalActivity)
-		for(let c of this.cols){
-			if(c.overlap > this.minOverlap && c.overlap >= minLocalActivity) activeCols.push(c)
+		for(let i=0; i<this.cols.length; i++){
+			let c = this.cols[i]
+			if(c.overlap > this.minOverlap && c.overlap >= minLocalActivity){
+				activeCols.push(c)
+				allColsActive[i] = 1
+			}else{
+				allColsActive[i] = 0
+			}
 		}
 		for(let c of activeCols){
 			for(let s of c.potentialSyns){
@@ -46,9 +52,10 @@ class Region{
 		}
 		let maxActiveDutyCycle = 0
 		for(let n of neighbours) maxActiveDutyCycle = Math.max(maxActiveDutyCycle,n.activeDutyCycle)
-		for(let c of this.cols){
+		for(let i=0; i<this.cols.length; i++){
+			let c = this.cols[i]
 			c.minDutyCycle = 0.01*maxActiveDutyCycle
-			c.updateActiveDutyCycle(activeCols)
+			c.updateActiveDutyCycle(allColsActive[i])
 			c.boost = Math.max(Math.min(c.minDutyCycle/c.activeDutyCycle || 0, 2),1)
 			c.updateOverlapDutyCycle(this)
 			if(c.overlapDutyCycle === 0 || c.overlapDutyCycle < c.minDutyCycle){
@@ -58,6 +65,7 @@ class Region{
 			}
 		}
 		console.log(this.cols.reduce((a,b)=>a+(activeCols.includes(b))+" "+b.overlap+" "+b.boost+" : | "/*+b.potentialSyns.reduce((a,c)=>a+c.permenance.toFixed(3)+" "+(input[c.otherSide]?"true ":"false")+" | ","")*/+"\n",""))
+		return allColsActive
 
 
 		/*for(let c of activeCols){
@@ -90,7 +98,7 @@ class Region{
 		}*/
 	}
 }
-class Col{
+class ColSP{
 	potentialSyns = []
 	overlap
 	boost = 1
@@ -111,9 +119,9 @@ class Col{
 			this.cells.push({predictiveState:false,prevPredictiveState:false,activeState:false,prevActiveState:false,learnState:false,syns:[]})//todo: add to syns
 		}
 	}
-	updateActiveDutyCycle(activeCols){
+	updateActiveDutyCycle(thisActive){
 		this.activeDutyCycle -= this.activeDutyCycleAvg[this.activeDutyCycleAvgOffset]
-		this.activeDutyCycleAvg[this.activeDutyCycleAvgOffset] = activeCols.includes(this)?1:0
+		this.activeDutyCycleAvg[this.activeDutyCycleAvgOffset] = thisActive
 		this.activeDutyCycle += this.activeDutyCycleAvg[this.activeDutyCycleAvgOffset]
 		this.activeDutyCycleAvgOffset++
 		if(this.activeDutyCycleAvgOffset >= this.activeDutyCycleAvg.length){
@@ -146,6 +154,17 @@ class Col{
 				s.temporaryPermanence = 0
 			}
 		}
+	}
+}
+
+class LayerTM{
+	cellsPerColumn = 4
+	synActiveThreshold = 15
+	constructor(options){
+		Object.assign(this,options)
+	}
+	tick(input){
+
 	}
 }
 
@@ -190,7 +209,7 @@ nthLargest = function(list, n) {
 }
 
 
-let r=new Region({colCount:16,cellsPerColumn:2,desiredLocalActivity:3,potentialRadius:4})
+let r=new LayerSP({colCount:16,cellsPerColumn:2,desiredLocalActivity:3,potentialRadius:4})
 let it=0
 setInterval(()=>{
 	let i=it-10
