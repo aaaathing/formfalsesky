@@ -5,20 +5,14 @@ const permenanceInc = 0.05
 const permenanceDec = 0.008
 class Region{
 	cols = []
-	constructor(){
-		
+	constructor({colCount,inputSize}){
+		for(let i=0;i<colCount;i++) this.cols.push(new Col(inputSize))
 	}
 	tick(input){
 		let colsOverlap = []
 		for(let i=0; i<this.cols.length; i++){
 			let c = this.cols[i]
 			c.usage--
-			if(c.usage <= 0){ // remove current one if not used
-				this.cols[i] = this.cols[this.cols.length-1]
-				this.cols.pop()
-				i--
-				continue
-			}
 			c.input(input)
 			colsOverlap.push(c.overlap)
 		}
@@ -33,7 +27,14 @@ class Region{
 		if(!activeCols.length){
 			let overlap = 0
 			for(let i=0; i<input.length; i++) overlap += input[i]
-			if(overlap >= input.length*minOverlapFract) this.cols.push(new Col(input)) // only add if enough input
+			if(overlap >= input.length*minOverlapFract){// only add if enough input
+				for(let c of this.cols){
+					if(c.usage <= 0){
+						c.reset(input)
+						break
+					}
+				}
+			}
 		}
 		for(let c of activeCols){
 			for(let s of c.inputSyn){
@@ -50,10 +51,16 @@ class Region{
 }
 
 class Col{
-	constructor(input){
+	usage = 0
+	constructor(inputSize){
 		this.inputSyn = []
-		for(let i=0; i<input.length; i++){
-			this.inputSyn.push({permenance:input[i]*0.2-0.1+permenanceForConnected,otherSide:i})
+		for(let i=0; i<inputSize; i++){
+			this.inputSyn.push({permenance:0,otherSide:i})
+		}
+	}
+	reset(input){
+		for(let i=0; i<this.inputSyn.length; i++){
+			this.inputSyn[i].permenance = input[i]*0.2-0.1+permenanceForConnected
 		}
 	}
 	overlap = 0
@@ -119,7 +126,7 @@ nthLargest = function(list, n) {
 }
 }
 
-let r=new Region()
+let r=new Region({colCount:2,inputSize:4})
 let i=0
 setInterval(()=>{
 	r.tick(i<10?[1,0,0,1]:i<20?[1,1,0,1]:[1,0,0,1])
