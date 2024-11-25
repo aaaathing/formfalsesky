@@ -78,15 +78,11 @@ class ColSP{
 	overlapDutyCycle = 0
 	overlapDutyCycleAvg
 	overlapDutyCycleAvgOffset = 0
-	cells = []
 	constructor(region,x){
 		this.activeDutyCycleAvg = new Array(1000).fill(0)
 		this.overlapDutyCycleAvg = new Array(1000).fill(0)
 		for(let i=Math.max(x-region.potentialRadius,0); i<=Math.min(x+region.potentialRadius,region.colCount-1); i++){
 			this.potentialSyns.push({permenance:Math.random()*0.1-0.05+region.connectedPermenance, otherSide:i})
-		}
-		for(let i=0; i<region.cellsPerColumn; i++){
-			this.cells.push({predictiveState:false,prevPredictiveState:false,activeState:false,prevActiveState:false,learnState:false,syns:[]})//todo: add to syns
 		}
 	}
 	updateActiveDutyCycle(thisActive){
@@ -107,42 +103,32 @@ class ColSP{
 			this.overlapDutyCycleAvgOffset = 0
 		}
 	}
-	adaptSyns(i,region){//todo change back
-		if(i.predictiveState && !i.prevPredictiveState){
-			for(let s of i.syns){
-				if(region.cols[s.otherSide].cells[s.otherSide1].activeState) s.temporaryPermanence = region.permenanceInc
-				else s.temporaryPermanence = -region.permenanceDec
-				s.permenance += s.temporaryPermanence//todo: clamp to 0 1
-			}
-		}else if(i.activeState && !i.prevActiveState){
-			for(let s of i.syns){
-				s.temporaryPermanence = 0
-			}
-		}else if((i.prevPredictiveState || i.prevActiveState) && !i.predictiveState && !i.activeState){
-			for(let s of i.syns){
-				s.permenance -= s.temporaryPermanence
-				s.temporaryPermanence = 0
-			}
-		}
-	}
 }
 
 class LayerTM{
-	cellsPerColumn = 4
+	colCount
+	cellsPerColumn = 32
 	synActiveThreshold = 15
-	cols = []
 	permenanceDec = 0.008
 	permenanceInc = 0.05
-	desiredActiveSynOnSegment
-	initialPermenance
+	desiredActiveSynOnSegment = 20
+	initialPermenance = 0.2
 	predictedPermenanceDec = 0.008//todo change
 	connectedPermenance = 0.2
-	segmentActivationThreshold
-	segmentLearningThreshold
+	segmentActivationThreshold = 13
+	segmentLearningThreshold = 10
 	prevWinnerCells = []
 	LERN = true
+	cols = []
 	constructor(options){
 		Object.assign(this,options)
+		for(let i=0; i<this.colCount; i++){
+			let col = new ColTM()
+			this.cols.push(col)
+			for(let i=0; i<this.cellsPerColumn; i++){
+				col.cells.push({active:false,prevActive:false,segments:[]})
+			}
+		}
 	}
 	/**
 	 * activeCols should be return value of LayerSP
@@ -158,10 +144,12 @@ class LayerTM{
 				}
 			}else{
 				if(this.LERN){
-					for(let s of c.segments){
-						if(s.matching){
-							for(let syn of s.syns){
-								if(syn.otherSide.prevActive/*todo*/) syn.permenance -= this.predictedPermenanceDec
+					for(let cell of c.cells){
+						for(let s of cell.segments){
+							if(s.matching){
+								for(let syn of s.syns){
+									if(syn.otherSide.prevActive/*todo*/) syn.permenance -= this.predictedPermenanceDec
+								}
 							}
 						}
 					}
@@ -169,18 +157,21 @@ class LayerTM{
 			}
 		}
 		for(let c of this.cols){
-			for(let s of c.segments){
-				s.prevActive = s.active
-				let numActiveConnected = 0, numActivePotential = 0
-				for(let syn of s.syns){
-					if(syn.otherSide.active/*todo*/){
-						if(syn.permenance >= this.connectedPermenance) numActiveConnected++
-						numActivePotential++
+			for(let cell of c.cells){
+				cell.prevActive = cell.active
+				cell.active = false
+				for(let s of cell.segments){
+					let numActiveConnected = 0, numActivePotential = 0
+					for(let syn of s.syns){
+						if(syn.otherSide.active/*todo*/){
+							if(syn.permenance >= this.connectedPermenance) numActiveConnected++
+							numActivePotential++
+						}
 					}
+					s.active = numActiveConnected >= this.segmentActivationThreshold
+					s.matching = numActivePotential >= this.segmentLearningThreshold
+					s.numActivePotentialSyns = numActivePotential
 				}
-				s.active = numActiveConnected >= this.segmentActivationThreshold
-				s.matching = numActivePotential >= this.segmentLearningThreshold
-				s.numActivePotentialSyns = numActivePotential
 			}
 		}
 		this.prevWinnerCells = winnerCells
@@ -211,8 +202,9 @@ class LayerTM{
 	growSyns(s, amount){
 		let can = this.prevWinnerCells.slice()
 		while(can.length && amount){
-			let otherSide = can[Math.floor(Math.random()*can.length)]
-			can.splice(otherSide,1)
+			let idx = Math.floor(Math.random()*can.length)
+			let otherSide = can[idx]
+			can.splice(idx,1)
 			for(let syn of s.syns){
 				if(syn.otherSide === otherSide) continue
 			}
@@ -232,7 +224,7 @@ class LayerTM{
 		if(hasMatching){
 			[learningSegment, winnerCell] = this.bestMatchingSegment(c)
 		}else{
-			winnerCell = leastUsedCell(c)
+			winnerCell = this.leastUsedCell(c)
 			if(this.LERN){
 				let s = {syns:[], matching:false, active:false, numActivePotentialSyns:0}
 				winnerCell.segments.push(s)
