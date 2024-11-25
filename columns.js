@@ -66,36 +66,6 @@ class LayerSP{
 		}
 		console.log(this.cols.reduce((a,b)=>a+(activeCols.includes(b))+" "+b.overlap+" "+b.boost+" : | "/*+b.potentialSyns.reduce((a,c)=>a+c.permenance.toFixed(3)+" "+(input[c.otherSide]?"true ":"false")+" | ","")*/+"\n",""))
 		return allColsActive
-
-
-		/*for(let c of activeCols){
-			let anyPredictive = false
-			for(let i of c.cells){
-				i.prevPredictiveState = i.predictiveState
-				i.prevActiveState = i.activeState
-				if(i.predictiveState){
-					i.activeState = true
-					anyPredictive = true
-					if(){}
-				}
-			}
-			if(!anyPredictive){
-				for(let i of c.cells) i.activeState = true
-			}
-		}
-		for(let c of activeCols){
-			for(let i of c.cells){
-				let actives = 0
-				for(let s of i.syns){
-					if(this.cols[s.otherSide].cells[s.otherSide1].activeState) actives++
-				}
-				i.predictiveState = actives>this.synActiveThreshold
-				if(actives>this.synActiveThreshold){
-					c.adaptSyns(i,this)
-				}
-				//todo connect to previous active cells
-			}
-		}*/
 	}
 }
 class ColSP{
@@ -160,12 +130,146 @@ class ColSP{
 class LayerTM{
 	cellsPerColumn = 4
 	synActiveThreshold = 15
+	cols = []
+	permenanceDec = 0.008
+	permenanceInc = 0.05
+	desiredActiveSynOnSegment
+	initialPermenance
+	predictedPermenanceDec = 0.008//todo change
+	connectedPermenance = 0.2
+	segmentActivationThreshold
+	segmentLearningThreshold
+	prevWinnerCells = []
+	LERN = true
 	constructor(options){
 		Object.assign(this,options)
 	}
-	tick(input){
-
+	/**
+	 * activeCols should be return value of LayerSP
+	*/
+	tick(activeCols){
+		let winnerCells = []
+		for(let i=0; i<this.cols.length; i++){
+			let c = this.cols[i]
+			if(activeCols[i]){
+				let hadActive = this.activatePredictedColumnIfPredictedColumn(c,winnerCells)
+				if(!hadActive){
+					this.burstColumn(c,winnerCells)
+				}
+			}else{
+				if(this.LERN){
+					for(let s of c.segments){
+						if(s.matching){
+							for(let syn of s.syns){
+								if(syn.otherSide.prevActive/*todo*/) syn.permenance -= this.predictedPermenanceDec
+							}
+						}
+					}
+				}
+			}
+		}
+		for(let c of this.cols){
+			for(let s of c.segments){
+				s.prevActive = s.active
+				let numActiveConnected = 0, numActivePotential = 0
+				for(let syn of s.syns){
+					if(syn.otherSide.active/*todo*/){
+						if(syn.permenance >= this.connectedPermenance) numActiveConnected++
+						numActivePotential++
+					}
+				}
+				s.active = numActiveConnected >= this.segmentActivationThreshold
+				s.matching = numActivePotential >= this.segmentLearningThreshold
+				s.numActivePotentialSyns = numActivePotential
+			}
+		}
+		this.prevWinnerCells = winnerCells
 	}
+	activatePredictedColumnIfPredictedColumn(c,winnerCells){
+		let hadActive = false
+		for(let cell of c.cells){
+			for(let s of cell.segments){
+				if(s.active){
+					hadActive = true
+					cell.active = true
+					winnerCells.push(cell)
+					if(this.LERN){
+						this.learnSegment(s)
+					}
+				}
+			}
+		}
+		return hadActive
+	}
+	learnSegment(s){
+		for(let syn of s.syns){
+			if(syn.otherSide.prevActive)/*todo*/ syn.permenance += this.permenanceInc
+			else syn.permenance -= this.permenanceDec
+		}
+		this.growSyns(s, this.desiredActiveSynOnSegment - s.numActivePotentialSyns)
+	}
+	growSyns(s, amount){
+		let can = this.prevWinnerCells.slice()
+		while(can.length && amount){
+			let otherSide = can[Math.floor(Math.random()*can.length)]
+			can.splice(otherSide,1)
+			for(let syn of s.syns){
+				if(syn.otherSide === otherSide) continue
+			}
+			s.syns.push({otherSide/*todo*/, permenance:this.initialPermenance})
+			amount--
+		}
+	}
+	burstColumn(c, winnerCells){
+		for(let cell of c.cells) cell.active = true
+		let hasMatching = false
+		for(let cell of c.cells){
+			for(let s of cell.segments){
+				if(s.matching) hasMatching = true
+			}
+		}
+		let learningSegment, winnerCell
+		if(hasMatching){
+			[learningSegment, winnerCell] = this.bestMatchingSegment(c)
+		}else{
+			winnerCell = leastUsedCell(c)
+			if(this.LERN){
+				let s = {syns:[], matching:false, active:false, numActivePotentialSyns:0}
+				winnerCell.segments.push(s)
+				learningSegment = s
+			}
+		}
+		winnerCells.push(winnerCell)
+		if(this.LERN){
+			this.learnSegment(learningSegment)
+		}
+	}
+	bestMatchingSegment(c){
+		let best, bestScore = -1, cellOfBest
+		for(let cell of c.cells){
+			for(let s of cell.segments){
+				if(s.matching){
+					if(s.numActivePotentialSyns>bestScore){
+						best = s
+						bestScore = s.numActivePotentialSyns
+						cellOfBest = cell
+					}
+				}
+			}
+		}
+		return [best,cellOfBest]
+	}
+	leastUsedCell(c){ // doesn't break ties randomly
+		let fewest = Infinity, fewestCell
+		for(let cell of c.cells){
+			fewest = Math.min(fewest, cell.segments.length)
+			fewestCell = cell
+		}
+		return fewestCell
+	}
+}
+class ColTM{
+	cells = []
 }
 
 let nthLargest
