@@ -116,6 +116,7 @@ class LayerTM{
 	connectedPermenance = 0.2
 	segmentActivationThreshold = 13
 	segmentLearningThreshold = 10
+	APICAL = true
 	prevWinnerCells = []
 	LERN = true
 	cols = []
@@ -125,14 +126,15 @@ class LayerTM{
 			let col = new ColTM()
 			this.cols.push(col)
 			for(let i=0; i<this.cellsPerColumn; i++){
-				col.cells.push({active:false,prevActive:false,segments:[]})
+				col.cells.push({active:false,prevActive:false,predict:false,apicalPredict:false,segments:[],apicalSegments:[]})
 			}
 		}
 	}
 	/**
 	 * activeCols should be return value of LayerSP
+	 * apicalInput should be from another layer
 	*/
-	tick(activeCols){
+	tick(activeCols, apicalInput){
 		for(let c of this.cols){
 			for(let cell of c.cells){
 				cell.prevActive = cell.active
@@ -143,9 +145,9 @@ class LayerTM{
 		for(let i=0; i<this.cols.length; i++){
 			let c = this.cols[i]
 			if(activeCols[i]){
-				let hadActive = this.activatePredictedColumnIfPredictedColumn(c,winnerCells)
+				let hadActive = this.activatePredictedColumnIfPredictedColumn(c,winnerCells,apicalInput)
 				if(!hadActive){
-					this.burstColumn(c,winnerCells)
+					this.burstColumn(c,winnerCells,apicalInput)
 				}
 			}else{
 				if(this.LERN){
@@ -161,21 +163,35 @@ class LayerTM{
 				}
 			}
 		}
+		let output = []
 		for(let c of this.cols){
+			let thisOutput = false, apicalPredict = false
 			for(let cell of c.cells){
+				this.updateSegmentActive(cell.segments)
+				this.updateSegmentActive(cell.apicalSegments)
+				cell.predict = false
+				cell.apicalPredict = false
 				for(let s of cell.segments){
-					let numActiveConnected = 0, numActivePotential = 0
-					for(let syn of s.syns){
-						if(syn.otherSide.active/*todo*/){
-							if(syn.permenance >= this.connectedPermenance) numActiveConnected++
-							numActivePotential++
-						}
+					if(s.active){
+						cell.predict = true
 					}
-					s.active = numActiveConnected >= this.segmentActivationThreshold
-					s.matching = numActivePotential >= this.segmentLearningThreshold
-					s.numActivePotentialSyns = numActivePotential
+				}
+				for(let s of cell.apicalSegments){
+					if(s.active){
+						cell.apicalPredict = true
+						apicalPredict = true
+					}
+				}
+				if(cell.active || cell.predict) thisOutput = true
+			}
+			if(apicalPredict){
+				for(let cell of c.cells){
+					if(!cell.apicalPredict && cell.predict){
+						cell.predict = false
+					}
 				}
 			}
+			output.push(thisOutput)
 		}
 		this.prevWinnerCells = winnerCells
 		console.log(
@@ -187,17 +203,27 @@ class LayerTM{
 				""),
 			"")
 		)
+		return output
 	}
-	activatePredictedColumnIfPredictedColumn(c,winnerCells){
+	activatePredictedColumnIfPredictedColumn(c,winnerCells,apicalInput){
 		let hadActive = false
 		for(let cell of c.cells){
-			for(let s of cell.segments){
-				if(s.active){
-					hadActive = true
-					cell.active = true
-					winnerCells.push(cell)
-					if(this.LERN){
-						this.learnSegment(s)
+			if(cell.predict){
+				hadActive = true
+				cell.active = true
+				winnerCells.push(cell)
+				if(this.LERN){
+					for(let s of cell.segments){
+						if(s.active){
+							this.learnSegment(s)
+						}
+					}
+					if(this.APICAL){
+						for(let s of cell.apicalSegments){
+							if(s.active){
+								this.learnApicalSegment(s,apicalInput)
+							}
+						}
 					}
 				}
 			}
@@ -209,9 +235,8 @@ class LayerTM{
 			if(syn.otherSide.prevActive)/*todo*/ syn.permenance += this.permenanceInc
 			else syn.permenance -= this.permenanceDec
 		}
-		this.growSyns(s, this.desiredActiveSynOnSegment - s.numActivePotentialSyns)
-	}
-	growSyns(s, amount){
+		// grow new ones
+		let amount = this.desiredActiveSynOnSegment - s.numActivePotentialSyns
 		let can = this.prevWinnerCells.slice()
 		while(can.length && amount){
 			let idx = Math.floor(Math.random()*can.length)
@@ -220,36 +245,65 @@ class LayerTM{
 			for(let syn of s.syns){
 				if(syn.otherSide === otherSide) continue
 			}
-			s.syns.push({otherSide/*todo*/, permenance:this.initialPermenance})
+			s.syns.push(new TMSyn(otherSide/*todo*/, this.initialPermenance))
 			amount--
 		}
 	}
-	burstColumn(c, winnerCells){
-		for(let cell of c.cells) cell.active = true
-		let hasMatching = false
-		for(let cell of c.cells){
-			for(let s of cell.segments){
-				if(s.matching) hasMatching = true
-			}
+	learnApicalSegment(s, apicalInput){
+		for(let syn of s.syns){
+			if(apicalInput[syn.otherSide]) syn.permenance += this.permenanceInc
+			else syn.permenance -= this.permenanceDec
 		}
-		let learningSegment, winnerCell
-		if(hasMatching){
-			[learningSegment, winnerCell] = this.bestMatchingSegment(c)
-		}else{
+		let amount = this.desiredActiveSynOnSegment - s.numActivePotentialSyns
+		let can = []
+		for(let i=0; i<apicalInput.length; i++){ //todo: move
+			if(apicalInput[i]) can.push(i)
+		}
+		while(can.length && amount){
+			let idx = Math.floor(Math.random()*can.length)
+			let otherSide = can[idx]
+			can.splice(idx,1)
+			for(let syn of s.syns){
+				if(syn.otherSide === otherSide) continue
+			}
+			s.syns.push(new TMSyn(otherSide, this.initialPermenance))
+			amount--
+		}
+	}
+	burstColumn(c, winnerCells, apicalInput){
+		for(let cell of c.cells) cell.active = true
+		let [hasMatching, learningSegment, winnerCell] = this.bestMatchingSegment(c)
+		if(!hasMatching){
 			winnerCell = this.leastUsedCell(c)
 			if(this.LERN){
-				let s = {syns:[], matching:false, active:false, numActivePotentialSyns:0}
-				winnerCell.segments.push(s)
-				learningSegment = s
+				learningSegment = new TMSegment()
+				winnerCell.segments.push(learningSegment)
 			}
 		}
 		winnerCells.push(winnerCell)
 		if(this.LERN){
 			this.learnSegment(learningSegment)
+
+			if(this.APICAL){ // find best matching apical segment
+				let learningApicalSegment, bestScore = -1, hasMatching = false
+				for(let s of winnerCell.segments){
+					if(s.matching){
+						if(s.numActivePotentialSyns>bestScore){
+							learningApicalSegment = s
+							bestScore = s.numActivePotentialSyns
+							hasMatching = true
+						}
+					}
+				}
+				if(!hasMatching){
+					learningApicalSegment = new TMSegment()
+				}
+				this.learnApicalSegment(learningApicalSegment,apicalInput)
+			}
 		}
 	}
 	bestMatchingSegment(c){
-		let best, bestScore = -1, cellOfBest
+		let best, bestScore = -1, cellOfBest, hasMatching = false
 		for(let cell of c.cells){
 			for(let s of cell.segments){
 				if(s.matching){
@@ -257,11 +311,12 @@ class LayerTM{
 						best = s
 						bestScore = s.numActivePotentialSyns
 						cellOfBest = cell
+						hasMatching = true
 					}
 				}
 			}
 		}
-		return [best,cellOfBest]
+		return [hasMatching,best,cellOfBest]
 	}
 	leastUsedCell(c){ // doesn't break ties randomly
 		let fewest = Infinity, fewestCell
@@ -271,9 +326,37 @@ class LayerTM{
 		}
 		return fewestCell
 	}
+	updateSegmentActive(segments){
+		for(let s of segments){
+			let numActiveConnected = 0, numActivePotential = 0
+			for(let syn of s.syns){
+				if(syn.otherSide.active/*todo*/){
+					if(syn.permenance >= this.connectedPermenance) numActiveConnected++
+					if(syn.permenance > 0) numActivePotential++
+				}
+			}
+			s.active = numActiveConnected >= this.segmentActivationThreshold
+			s.matching = numActivePotential >= this.segmentLearningThreshold
+			s.numActivePotentialSyns = numActivePotential
+		}
+	}
 }
 class ColTM{
 	cells = []
+}
+class TMSyn{
+	otherSide // otherSide can be a index or cell
+	permenance
+	constructor(otherSide,permenance){
+		this.otherSide = otherSide
+		this.permenance = permenance
+	}
+}
+class TMSegment{
+	syns = []
+	matching = false
+	active = false
+	numActivePotentialSyns = 0
 }
 
 let nthLargest
