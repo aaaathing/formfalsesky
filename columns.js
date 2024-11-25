@@ -108,7 +108,6 @@ class ColSP{
 class LayerTM{
 	colCount
 	cellsPerColumn = 32
-	synActiveThreshold = 15
 	permenanceDec = 0.008
 	permenanceInc = 0.05
 	desiredActiveSynOnSegment = 20
@@ -134,6 +133,12 @@ class LayerTM{
 	 * activeCols should be return value of LayerSP
 	*/
 	tick(activeCols){
+		for(let c of this.cols){
+			for(let cell of c.cells){
+				cell.prevActive = cell.active
+				cell.active = false
+			}
+		}
 		let winnerCells = []
 		for(let i=0; i<this.cols.length; i++){
 			let c = this.cols[i]
@@ -158,8 +163,6 @@ class LayerTM{
 		}
 		for(let c of this.cols){
 			for(let cell of c.cells){
-				cell.prevActive = cell.active
-				cell.active = false
 				for(let s of cell.segments){
 					let numActiveConnected = 0, numActivePotential = 0
 					for(let syn of s.syns){
@@ -175,6 +178,15 @@ class LayerTM{
 			}
 		}
 		this.prevWinnerCells = winnerCells
+		console.log(
+			this.cols.reduce((a,b,i)=>a+"\ncolumn "+i+"; active:"+(activeCols[i]?"\x1b[43mtrue\x1b[0m":"fals")
+				+b.cells.reduce((a,c)=>a+"\n\tcell; active:"+(c.active?"\x1b[43mtrue\x1b[0m":"fals")
+					+c.segments.reduce((a,s)=>a+"\n\t\tsegment; active:"+(s.active?"\x1b[43mtrue\x1b[0m":"fals")+"; matching:"+(s.matching?"\x1b[43mtrue\x1b[0m":"fals")+"; syns: \n\t\t"
+						+s.syns.reduce((a,syn)=>a+" | perm:"+syn.permenance+"; othrSd:"+(syn.otherSide.active?"\x1b[43mtrue\x1b[0m":"fals"),""),
+					""),
+				""),
+			"")
+		)
 	}
 	activatePredictedColumnIfPredictedColumn(c,winnerCells){
 		let hadActive = false
@@ -305,12 +317,14 @@ nthLargest = function(list, n) {
 }
 
 
-let r=new LayerSP({colCount:16,cellsPerColumn:2,desiredLocalActivity:3,potentialRadius:4})
+//let r=new LayerSP({colCount:16,desiredLocalActivity:3,potentialRadius:4})
+let r=new LayerTM({colCount:16,cellsPerColumn:2,segmentActivationThreshold:1,segmentLearningThreshold:1})
 let it=0
 setInterval(()=>{
+	if(it>5)return
 	let i=it-10
 	if(it<10)i=(it%3)*10+1
+	console.log("\n\n\n"+i)
 	r.tick(i<10?[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0]:i<20?[0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0]:[0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0])
-	console.log(i)
 	it++
 },1000)
