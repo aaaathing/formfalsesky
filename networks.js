@@ -32,14 +32,15 @@ class Syn{
 		let dwt = XCAL(srs, srm) + this.otherSide.AvgLLrn * XCAL(srs, this.otherSide.AvgL)
 		//todo: maybe normalize dwt
 		//todo: maybe balance
+		//todo: multiply dwt by rate
 		this.LWt += dwt
 		this.Wt = SIG(this.LWt)
 	}
 }
 class Ne{
 	Act = 0
-	Ge
-	Gi
+	Ge = 0
+	Gi = 0
 	Targ
 	Ext //external input
 	Inet = 0
@@ -134,16 +135,36 @@ class Layer{
 }
 
 
-let n=new Ne(0,0,0), s=new Syn()
-s.Wt=s.LWt=1
-s.otherSide=new Ne(1,0,0)
-n.syns.push(s)
+let n=new Ne(0,0,0), n2=new Ne(1,0,0)
+let s=new Syn()
+s.Wt=s.LWt=0.1
+s.otherSide=n
+n2.syns.push(s)
 function testAct(ge,gi){
 	n.Ge=ge;n.Gi=gi
-	n.updateActive()
+	for(let i=0;i<75;i++){
+		n2.updateExcite()
+		n.updateActive()
+		n2.updateActive()
+		n.updateLernAvgs()
+		n2.updateLernAvgs()
+	}
+	n.updateLernAvgsAtMinusPhaseEnd()
+	n2.updateLernAvgsAtMinusPhaseEnd()
+	for(let i=0;i<25;i++){
+		n2.updateExcite()
+		n.updateActive()
+		//n2.updateActive()
+		n2.Ge=1
+		n.updateLernAvgs()
+		n2.updateLernAvgs()
+	}
+	n.updateLernAvgsAtPlusPhaseEnd()
+	n2.updateLernAvgsAtPlusPhaseEnd()
+	n2.doLern()
 	console.log(n)
 	console.log(s.LWt)
-	console.log(s.otherSide)
+	console.log(n2)
 }
 let it=0
 setInterval(()=>{
