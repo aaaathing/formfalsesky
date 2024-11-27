@@ -1,5 +1,6 @@
 const speed = 1
 const maxAndAvgMix = 0.5
+const lernRate = 1
 
 // info: https://github.com/emer/leabra/blob/main/chans/chans.go
 const erevE = 1, erevL = 0.3, erevI = 0.25
@@ -26,14 +27,20 @@ class Syn{
 	Wt = 0
 	LWt = 0 //linear
 	otherSide
-	doLern(Send){
-		let srs = Send.AvgSLrn * this.otherSide.AvgSLrn
-		let srm = Send.AvgM * this.otherSide.AvgM
-		let dwt = XCAL(srs, srm) + this.otherSide.AvgLLrn * XCAL(srs, this.otherSide.AvgL)
+	constructor(weight,otherSide){
+		this.LWt = weight
+		this.Wt = SIG(this.LWt)
+		this.otherSide = otherSide
+	}
+	doLern(Recv){
+		let srs = this.otherSide.AvgSLrn * Recv.AvgSLrn
+		let srm = this.otherSide.AvgM * Recv.AvgM
+		console.log(srs,srm)
+		let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
 		//todo: maybe normalize dwt
 		//todo: maybe balance
 		//todo: multiply dwt by rate
-		this.LWt += dwt
+		this.LWt += dwt*lernRate
 		this.Wt = SIG(this.LWt)
 	}
 }
@@ -83,27 +90,32 @@ class Ne{
 	}
 	updateActive(){
 		this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
-		this.Vm += (1/3.3) * this.Inet
+		this.Vm += this.Inet //(1/3.3) * this.Inet
+		this.Vm = min(max(this.Vm,0),2)
 		let newAct
-		/*if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
-			newAct = XX1(this.Vm-XX1threshold)
-		}else*/{
+		if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
+			newAct = max(this.Vm-XX1threshold, 0)
+		}else{
 			let geThr = (this.Gi * (erevI - XX1threshold) + gbarL * (erevL - XX1threshold)) / (XX1threshold - erevE)
-			newAct = contrast(contrast(this.Ge-geThr))
+			newAct = max(this.Ge-geThr, 0)
 		}
 		this.Act += (1/3.3) * (newAct-this.Act)
 	}
 	updateLernAvgs(){
-		this.AvgSS += (1/2)*(this.Act-this.AvgSS)
-		this.AvgS += (1/2)*(this.Act-this.AvgS)
-		this.AvgM += (1/10)*(this.Act-this.AvgM)
-		this.AvgSLrn = (1-0.1) * this.AvgS + 0.1 * this.AvgM
+		/*this.AvgSS += (1/2)*(this.Act-this.AvgSS)
+		this.AvgS += (1/2)*(this.AvgSS-this.AvgS)
+		this.AvgM += (1/10)*(this.AvgS-this.AvgM)
+		this.AvgSLrn = (1-0.1) * this.AvgS + 0.1 * this.AvgM*/
 	}
 	updateLernAvgsAtMinusPhaseEnd(){
 		this.ActM = this.Act
 	}
 	updateLernAvgsAtPlusPhaseEnd(){
 		this.ActP = this.Act
+		
+		this.AvgSLrn=this.ActP // approximation of updateLernAvgs
+		this.AvgM = this.ActP*0.5+this.ActM*0.5 //approximation
+
 		this.AvgL += (1/10) * (2.5 * this.AvgM - this.AvgL); this.AvgL = max(this.AvgL, 0.2) //only once per trial
 		this.AvgLLrn = ((0.0001 - 0.5) / (2.5 - 0.0001)) * (this.AvgL - 0.0001)
 		this.AvgLLrn *= max(abs(this.ActP-this.ActM), 0.01)
@@ -136,12 +148,11 @@ class Layer{
 
 
 let n=new Ne(0,0,0), n2=new Ne(1,0,0)
-let s=new Syn()
-s.Wt=s.LWt=0.1
+let s=new Syn(0.4,n)
 s.otherSide=n
 n2.syns.push(s)
-function testAct(ge,gi){
-	n.Ge=ge;n.Gi=gi
+function testAct(ge, otherGe){
+	n.Ge=ge
 	for(let i=0;i<75;i++){
 		n2.updateExcite()
 		n.updateActive()
@@ -152,10 +163,10 @@ function testAct(ge,gi){
 	n.updateLernAvgsAtMinusPhaseEnd()
 	n2.updateLernAvgsAtMinusPhaseEnd()
 	for(let i=0;i<25;i++){
-		n2.updateExcite()
+		//n2.updateExcite()
 		n.updateActive()
-		//n2.updateActive()
-		n2.Ge=1
+		n2.Ge=otherGe
+		n2.updateActive()
 		n.updateLernAvgs()
 		n2.updateLernAvgs()
 	}
@@ -169,9 +180,9 @@ function testAct(ge,gi){
 let it=0
 setInterval(()=>{
 	console.log(it)
-	if(it<10)testAct(1,0)
-	else if(it<20) testAct(0,0)
-	else if(it<30) testAct(0.25,0)
+	if(it<10)testAct(1,1)
+	else if(it<20) testAct(0,1)
+	else if(it<30) testAct(1,0)
 	else if(it<40) testAct(0.1,0)
 	it++
 },1000)
