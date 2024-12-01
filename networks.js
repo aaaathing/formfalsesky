@@ -44,12 +44,35 @@ class Syn{
 		this.Wt = SIG(this.LWt)
 	}
 }
+class Path{
+	layer //also sender
+	reciever
+	type = "normal"
+	syns = [] // array of arrays
+	constructor(layer, reciever){
+		this.reciever = reciever
+		this.layer = layer
+		for(let i=0; i<layer.nodes.length; i++){
+			this.syns.push([])
+		}
+	}//todo: add to syns
+	updateExcite(){
+		for(let i=0; i<this.layer.nodes.length; i++){
+			for(let s of this.syns[i]){
+				this.layer.nodes[i].Ge += this.reciever.nodes[s.otherSide].Act*s.Wt
+			}
+		}
+	}
+	doLern(){
+		for(let i=0; i<this.layer.nodes.length; i++){
+			this.syns[i].doLern(this.reciever.nodes[s.otherSide])
+		}
+	}
+}
 class Ne{
 	Act = 0
 	Ge = 0
 	Gi = 0
-	Targ
-	Ext //external input
 	Inet = 0
 	Vm = 0
 	AvgSS = 0
@@ -60,18 +83,19 @@ class Ne{
 	AvgSLrn = 0
 	ActM //minus phase
 	ActP //plus phase
-	syns = []
+	//syns = []
 	x;y;z
 	constructor(x, y, z){
 		this.x = x
 		this.y = y
 		this.z = z
 	}
-	updateExcite(){
+	/*updateExcite(){
 		let excite = 0
 		for(let s of this.syns) excite += s.otherSide.Act*s.Wt
-		this.Ge += speed * (1/1.4) * ((excite/this.syns.length) - this.Ge)
-	}
+		//this.Ge += speed * (1/1.4) * ((excite/this.syns.length) - this.Ge)
+		this.Ge = excite
+	}*/
 	updateInhib(layer){
 		let maxGe = 0, avgGe = 0
 		for(let x=-layer.inhibRadius; x<=layer.inhibRadius; x++){
@@ -101,12 +125,12 @@ class Ne{
 		}
 		this.Act += (1/3.3) * (newAct-this.Act)
 	}
-	updateLernAvgs(){
-		/*this.AvgSS += (1/2)*(this.Act-this.AvgSS)
+	/*updateLernAvgs(){
+		this.AvgSS += (1/2)*(this.Act-this.AvgSS)
 		this.AvgS += (1/2)*(this.AvgSS-this.AvgS)
 		this.AvgM += (1/10)*(this.AvgS-this.AvgM)
-		this.AvgSLrn = (1-0.1) * this.AvgS + 0.1 * this.AvgM*/
-	}
+		this.AvgSLrn = (1-0.1) * this.AvgS + 0.1 * this.AvgM
+	}*/
 	updateLernAvgsAtMinusPhaseEnd(){
 		this.ActM = this.Act
 	}
@@ -128,7 +152,14 @@ class Layer{
 	nodes = []
 	w;h;d
 	inhibRadius = 1
-	constructor(w,h=1,d=1){
+	/**
+	 * type can be: super, input, target
+	*/
+	type
+	/** used for type of input and target */
+	inputObj = null
+	constructor(type="super", w,h=1,d=1, inputObj=null){
+		this.type = type
 		this.w=w;this.h=h;this.d=d
 		for(let x=0;x<w;x++){
 			for(let y=0;y<h;y++){
@@ -137,16 +168,44 @@ class Layer{
 				}
 			}
 		}
+		this.inputObj = inputObj
 	}
 	tick(){
-
+		//updateExcite should be done by Path
+		if(this.type === "input"){
+			for(let i=0; i<this.nodes.length; i++){
+				this.nodes[n].Ge = this.inputObj[i]
+			}
+		}
+		const typeIsTarget = this.type === "target"
+		for(let n of this.nodes) n.updateInhib()
+		for(let i=0; i<this.nodes.length; i++){
+			let n = this.nodes[i]
+			n.updateActive()
+			n.updateLernAvgsAtMinusPhaseEnd()
+			if(typeIsTarget){
+				n.Ge = this.inputObj[i]
+			}
+			n.updateLernAvgsAtPlusPhaseEnd()
+			n.Ge = 0 // because Path does updateExcite
+		}
 	}
 	getNode(x,y=0,z=0){
 		return this.nodes[(x*this.w+y)*this.h+z]
 	}
 }
+class Network{
+	paths = []
+	layers = []
+	tick(){
+		for(let p of this.paths) p.updateExcite()
+		for(let l of this.layers) l.tick()
+		for(let p of this.paths) p.doLern()
+	}
+}
 
 
+/*
 let n=new Ne(0,0,0), n2=new Ne(1,0,0)
 let s=new Syn(0.4,n)
 s.otherSide=n
@@ -186,3 +245,4 @@ setInterval(()=>{
 	else if(it<40) testAct(0.1,0)
 	it++
 },1000)
+*/
