@@ -44,28 +44,31 @@ class Syn{
 		this.Wt = SIG(this.LWt)
 	}
 }
+//todo: bidirectional path have weight symmetry
+//todo: pools
 class Path{
-	layer //also sender
-	reciever
-	type = "normal"
 	syns = [] // array of arrays
-	constructor(layer, reciever){
+	constructor({sender, reciever, type = "full"}){
 		this.reciever = reciever
-		this.layer = layer
-		for(let i=0; i<layer.nodes.length; i++){
+		this.sender = sender
+		/**
+		 * can be: full
+		 */
+		this.type = type
+		for(let i=0; i<reciever.nodes.length; i++){
 			this.syns.push([])
 		}
 	}//todo: add to syns
 	updateExcite(){
-		for(let i=0; i<this.layer.nodes.length; i++){
+		for(let i=0; i<this.reciever.nodes.length; i++){
 			for(let s of this.syns[i]){
-				this.layer.nodes[i].Ge += this.reciever.nodes[s.otherSide].Act*s.Wt
+				this.reciever.nodes[i].Ge += this.sender.nodes[s.otherSide].Act*s.Wt
 			}
 		}
 	}
 	doLern(){
-		for(let i=0; i<this.layer.nodes.length; i++){
-			this.syns[i].doLern(this.reciever.nodes[s.otherSide])
+		for(let i=0; i<this.reciever.nodes.length; i++){
+			this.syns[i].doLern(this.sender.nodes[s.otherSide])
 		}
 	}
 }
@@ -118,10 +121,10 @@ class Ne{
 		this.Vm = min(max(this.Vm,0),2)
 		let newAct
 		if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
-			newAct = max(this.Vm-XX1threshold, 0)
+			newAct = max(contrast(this.Vm-XX1threshold), 0)
 		}else{
 			let geThr = (this.Gi * (erevI - XX1threshold) + gbarL * (erevL - XX1threshold)) / (XX1threshold - erevE)
-			newAct = max(this.Ge-geThr, 0)
+			newAct = max(contrast(this.Ge-geThr), 0)
 		}
 		this.Act += (1/3.3) * (newAct-this.Act)
 	}
@@ -150,15 +153,10 @@ class Ne{
 }
 class Layer{
 	nodes = []
-	w;h;d
-	inhibRadius = 1
-	/**
-	 * type can be: super, input, target
-	*/
-	type
-	/** used for type of input and target */
-	inputObj = null
-	constructor(type="super", w,h=1,d=1, inputObj=null){
+	constructor({type="super", w,h=1,d=1, inputObj=null, inhibRadius=1}){
+		/**
+		 * type can be: super, input, target
+		*/
 		this.type = type
 		this.w=w;this.h=h;this.d=d
 		for(let x=0;x<w;x++){
@@ -168,7 +166,13 @@ class Layer{
 				}
 			}
 		}
+		/**
+		 * used for type of input and target
+		 * if type is target, inputObj should be expected output
+		 * @type {Array<number>}
+		 */
 		this.inputObj = inputObj
+		this.inhibRadius = inhibRadius
 	}
 	tick(){
 		//updateExcite should be done by Path
@@ -178,7 +182,9 @@ class Layer{
 			}
 		}
 		const typeIsTarget = this.type === "target"
-		for(let n of this.nodes) n.updateInhib()
+		if(this.inhibRadius){
+			for(let n of this.nodes) n.updateInhib()
+		}
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
 			n.updateActive()
@@ -202,8 +208,17 @@ class Network{
 		for(let l of this.layers) l.tick()
 		for(let p of this.paths) p.doLern()
 	}
+	addLayer(o){ let l = new Layer(o); this.layers.push(l); return l }
+	addPath(o){ let p = new Path(o); this.paths.push(p); return p }
 }
 
+
+let n = new Network(), inp=[], outp=[]
+let inply = n.addLayer({w:3,type:"input",inputObj:inp})
+let hidly = n.addLayer({w:3,type:"super"})
+let outly = n.addLayer({w:3,type:"target",inputObj:outp})
+n.addPath({sender:inply,reciever:hidly})
+n.addPath({sender:hidly,reciever:outly})
 
 /*
 let n=new Ne(0,0,0), n2=new Ne(1,0,0)
