@@ -1,6 +1,8 @@
 const speed = 1
 const maxAndAvgMix = 0.5
 const lernRate = 1
+/** if activation changes enough, other things can be updated */
+const activationChangeThreshold = 0.01
 
 // info: https://github.com/emer/leabra/blob/main/chans/chans.go
 const erevE = 1, erevL = 0.3, erevI = 0.25
@@ -174,38 +176,75 @@ class Layer{
 		this.inputObj = inputObj
 		this.inhibRadius = inhibRadius
 	}
-	tick(){
+	/**
+	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
+	 * @returns true if any activation changes enough
+	 */
+	tick(phase){
+		let changed = false
 		//updateExcite should be done by Path
 		if(this.type === "input"){
 			for(let i=0; i<this.nodes.length; i++){
-				this.nodes[n].Ge = this.inputObj[i]
+				this.nodes[i].Ge = this.inputObj[i]
 			}
 		}
-		const typeIsTarget = this.type === "target"
+		if(this.type === "target" && phase === 1){
+			for(let i=0; i<this.nodes.length; i++){
+				this.nodes[i].Ge = this.inputObj[i]
+			}
+		}
 		if(this.inhibRadius){
 			for(let n of this.nodes) n.updateInhib()
 		}
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
+			let prevAct = n.Act
 			n.updateActive()
-			n.updateLernAvgsAtMinusPhaseEnd()
-			if(typeIsTarget){
-				n.Ge = this.inputObj[i]
+			if(abs(prevAct-n.Act) > activationChangeThreshold) changed = true
+			if(phase === 0){
+				n.updateLernAvgsAtMinusPhaseEnd()
+			}else{
+				n.updateLernAvgsAtPlusPhaseEnd()
 			}
-			n.updateLernAvgsAtPlusPhaseEnd()
 			n.Ge = 0 // because Path does updateExcite
 		}
+		return changed
 	}
 	getNode(x,y=0,z=0){
 		return this.nodes[(x*this.w+y)*this.h+z]
 	}
 }
 class Network{
+	/** @type {Array<Path>} */
 	paths = []
+	/** @type {Array<Layer>} */
 	layers = []
+	/**
+	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
+	 */
+	tickPhase(phase){
+		//todo: update them in correct order, when update one layer, update layers connected to it
+		let updated = new Set([/*put layer here*/]), nextUpdated = new Set()
+		while(updated.size){
+			for(let p of this.paths){
+				if(updated.has(p.sender)){
+					p.updateExcite()
+					nextUpdated.add(p.reciever)
+				}
+			}
+			for(let l of nextUpdated){
+				const changed = l.tick(phase)
+				if(!changed) nextUpdated.delete(l)
+			}
+			let temp = updated
+			updated = nextUpdated
+			temp.clear()
+			nextUpdated = temp
+		}
+	}
 	tick(){
-		for(let p of this.paths) p.updateExcite()
-		for(let l of this.layers) l.tick()
+		this.tickPhase(0)
+		this.tickPhase(1)
 		for(let p of this.paths) p.doLern()
 	}
 	addLayer(o){ let l = new Layer(o); this.layers.push(l); return l }
