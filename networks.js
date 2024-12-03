@@ -43,17 +43,18 @@ class Syn{
 		this.LWt += dwt*lernRate
 		this.LWt = max(min(this.LWt, 1),0)
 		this.Wt = SIG(this.LWt)
+		if(isNaN(this.Wt))debugger
 	}
 }
 class Ne{
 	Act = 0
 	Ge = 0
 	Gi = 0
-	Inet = 0
 	Vm = 0
+	/*Inet = 0
 	AvgSS = 0
 	AvgS = 0
-	AvgM = 0
+	AvgM = 0*/
 	AvgL = 0
 	AvgLLrn = 0
 	AvgSLrn = 0
@@ -115,7 +116,7 @@ class Ne{
 		this.ActP = this.Act
 	}
 	updateLernAvgsAtTrialEnd(){
-		this.AvgSLrn=this.ActP // approximation of updateLernAvgs
+		this.AvgSLrn = (1-0.1) * this.ActP + 0.1 * this.ActM // approximation of updateLernAvgs
 		this.AvgM = this.ActP*0.5+this.ActM*0.5 //approximation
 
 		this.AvgL += (1/10) * (2.5 * this.AvgM - this.AvgL); this.AvgL = max(this.AvgL, 0.2) //only once per trial
