@@ -12,7 +12,7 @@ const XX1threshold = 0.5
 const XX1vmActiveThreshold = 0.01
 //function XX1(x){return x/(x+1)}
 // (2-abs(x))*x
-function contrast(x){return (2-abs(x))*x}
+function contrast(x){return min(max((2-abs(x))*x, 0),1)}
 
 const XCALDThr = 0.0001, XCALDRev = 0.1
 function XCAL(x, th){
@@ -37,12 +37,11 @@ class Syn{
 	doLern(Send,Recv){
 		let srs = Send.AvgSLrn * Recv.AvgSLrn
 		let srm = Send.AvgM * Recv.AvgM
-		console.log(srs,srm)
 		let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
 		//todo: maybe normalize dwt
 		//todo: maybe balance
-		//todo: multiply dwt by rate
 		this.LWt += dwt*lernRate
+		this.LWt = max(min(this.LWt, 1),0)
 		this.Wt = SIG(this.LWt)
 	}
 }
@@ -90,17 +89,18 @@ class Ne{
 		// todo: add feedback inhib
 	}
 	updateActive(){
-		this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
-		this.Vm += this.Inet /*(1/3.3) * this.Inet*/
+		//this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
+		//this.Vm += this.Inet (1/3.3) * this.Inet
+		this.Vm = this.Ge * erevE + gbarL * erevL + this.Gi * erevI
 		this.Vm = min(max(this.Vm,0),2)
 		let newAct
 		if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
-			newAct = max(contrast(this.Vm-XX1threshold), 0)
+			newAct = contrast(this.Vm-XX1threshold + Math.random()*0.01)
 		}else{
 			let geThr = (this.Gi * (erevI - XX1threshold) + gbarL * (erevL - XX1threshold)) / (XX1threshold - erevE)
-			newAct = max(contrast(this.Ge-geThr), 0)
+			newAct = contrast(this.Ge-geThr + Math.random()*0.01)
 		}
-		this.Act += newAct /*(1/3.3) * (newAct-this.Act)*/ + Math.random()*0.01
+		this.Act = newAct /*(1/3.3) * (newAct-this.Act)*/
 	}
 	/*updateLernAvgs(){
 		this.AvgSS += (1/2)*(this.Act-this.AvgSS)
@@ -113,7 +113,8 @@ class Ne{
 	}
 	updateLernAvgsAtPlusPhaseEnd(){
 		this.ActP = this.Act
-		
+	}
+	updateLernAvgsAtTrialEnd(){
 		this.AvgSLrn=this.ActP // approximation of updateLernAvgs
 		this.AvgM = this.ActP*0.5+this.ActM*0.5 //approximation
 
@@ -121,9 +122,9 @@ class Ne{
 		this.AvgLLrn = ((0.0001 - 0.5) / (2.5 - 0.0001)) * (this.AvgL - 0.0001)
 		this.AvgLLrn *= max(abs(this.ActP-this.ActM), 0.01)
 	}
-	doLern(){
+	/*doLern(){
 		for(let s of this.syns) s.doLern(this)
-	}
+	}*/
 }
 //todo: bidirectional path have weight symmetry
 //todo: pools
@@ -140,7 +141,7 @@ class Path{
 		for(let i=0; i<reciever.nodes.length; i++){
 			this.syns.push(this.initSynsFor(reciever.nodes[i]))
 		}
-		this.activations = new Array(reciever.nodes.length)
+		this.activations = new Array(reciever.nodes.length).fill(0)
 	}
 	initSynsFor(n){
 		let arr = []
@@ -155,20 +156,28 @@ class Path{
 		return arr
 	}
 	updateExcite(){
+		let changed = false
 		for(let i=0; i<this.reciever.nodes.length; i++){
+			let prevAct = this.activations[i]
 			this.activations[i] = 0
 			for(let s of this.syns[i]){
 				this.activations[i] += this.sender.nodes[s.otherSide].Act*s.Wt
 			}
+			if(abs(prevAct-this.activations[i]) > activationChangeThreshold) changed = true
 		}
+		console.log("path updateExcite "+this.type)
+		return changed
 	}
 	doLern(){
 		for(let i=0; i<this.reciever.nodes.length; i++){
 			let nr = this.reciever.nodes[i]
+			let si=0
 			for(let s of this.syns[i]){
+				if(i===1&&si++===0)debugger
 				s.doLern(this.sender.nodes[s.otherSide], nr)
 			}
 		}
+		console.log("path doLern "+this.type)
 	}
 }
 class Layer{
@@ -210,7 +219,6 @@ class Layer{
 	 * @returns true if any activation changes enough
 	 */
 	tick(phase){
-		let changed = false
 		this.updateNodesExcite()
 		if(this.type === "input"){
 			for(let i=0; i<this.nodes.length; i++){
@@ -227,16 +235,14 @@ class Layer{
 		}
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
-			let prevAct = n.Act
 			n.updateActive()
-			if(abs(prevAct-n.Act) > activationChangeThreshold) changed = true
 			if(phase === 0){
 				n.updateLernAvgsAtMinusPhaseEnd()
 			}else{
 				n.updateLernAvgsAtPlusPhaseEnd()
 			}
 		}
-		return changed
+		console.log("layer tick "+this.type)
 	}
 	getNode(x,y=0,z=0){
 		return this.nodes[(x*this.w+y)*this.h+z]
@@ -253,17 +259,15 @@ class Network{
 	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
 	 */
 	tickPhase(phase){
-		//todo: update them in correct order, when update one layer, update layers connected to it
-		let updated = new Set(this.inputLayers), nextUpdated = new Set()
+		let updated = new Set(this.layers), nextUpdated = new Set()
 		while(updated.size){
 			for(let l of updated){
-				const changed = l.tick(phase)
-				if(!changed) updated.delete(l)
+				l.tick(phase)
 			}
 			for(let p of this.paths){
 				if(updated.has(p.sender)){
-					p.updateExcite()
-					nextUpdated.add(p.reciever)
+					let changed = p.updateExcite()
+					if(changed) nextUpdated.add(p.reciever)
 				}
 			}
 			let temp = updated
@@ -273,14 +277,21 @@ class Network{
 		}
 	}
 	tick(){
+		console.log("p 0")
 		this.tickPhase(0)
+		console.log("p 1")
 		this.tickPhase(1)
+		for(let l of this.layers){
+			for(let n of l.nodes){
+				n.updateLernAvgsAtTrialEnd()
+			}
+		}
 		for(let p of this.paths) p.doLern()
 	}
 	addLayer(o){
 		let l = new Layer(o)
 		this.layers.push(l)
-		if(l.type === "input") this.inputLayers.push(l)
+		if(l.type === "input" || l.type === "target") this.inputLayers.push(l)
 		return l
 	}
 	addPath(o){
@@ -298,13 +309,22 @@ let inply = n.addLayer({w:3,type:"input",inputObj:inp, inhibRadius:0})
 let outly = n.addLayer({w:3,type:"target",inputObj:outp, inhibRadius:0})
 //n.addPath({sender:inply,reciever:hidly})
 //n.addPath({sender:hidly,reciever:outly})
-n.addPath({sender:inply,reciever:outly})
+let pt=n.addPath({sender:inply,reciever:outly})
 
 inp.splice(0,inp.length, 1,0,0)
-outp.splice(0,outp.length, 0,0,0)
-n.tickPhase(0)
+outp.splice(0,outp.length, 0,1,0)
+n.tick()
 console.log(inply)
 console.log(outly)
+console.log(pt)
+debugger
+
+inp.splice(0,inp.length, 1,0,0)
+outp.splice(0,outp.length, 1,0,0)
+n.tick()
+console.log(inply)
+console.log(outly)
+console.log(pt)
 debugger
 
 /*
