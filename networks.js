@@ -34,9 +34,9 @@ class Syn{
 		this.Wt = SIG(this.LWt)
 		this.otherSide = otherSide
 	}
-	doLern(Recv){
-		let srs = this.otherSide.AvgSLrn * Recv.AvgSLrn
-		let srm = this.otherSide.AvgM * Recv.AvgM
+	doLern(Send,Recv){
+		let srs = Send.AvgSLrn * Recv.AvgSLrn
+		let srm = Send.AvgM * Recv.AvgM
 		console.log(srs,srm)
 		let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
 		//todo: maybe normalize dwt
@@ -44,34 +44,6 @@ class Syn{
 		//todo: multiply dwt by rate
 		this.LWt += dwt*lernRate
 		this.Wt = SIG(this.LWt)
-	}
-}
-//todo: bidirectional path have weight symmetry
-//todo: pools
-class Path{
-	syns = [] // array of arrays
-	constructor({sender, reciever, type = "full"}){
-		this.reciever = reciever
-		this.sender = sender
-		/**
-		 * can be: full
-		 */
-		this.type = type
-		for(let i=0; i<reciever.nodes.length; i++){
-			this.syns.push([])
-		}
-	}//todo: add to syns
-	updateExcite(){
-		for(let i=0; i<this.reciever.nodes.length; i++){
-			for(let s of this.syns[i]){
-				this.reciever.nodes[i].Ge += this.sender.nodes[s.otherSide].Act*s.Wt
-			}
-		}
-	}
-	doLern(){
-		for(let i=0; i<this.reciever.nodes.length; i++){
-			this.syns[i].doLern(this.sender.nodes[s.otherSide])
-		}
 	}
 }
 class Ne{
@@ -88,7 +60,7 @@ class Ne{
 	AvgSLrn = 0
 	ActM //minus phase
 	ActP //plus phase
-	//syns = []
+	totalSynWeight = 0
 	x;y;z
 	constructor(x, y, z){
 		this.x = x
@@ -101,25 +73,25 @@ class Ne{
 		//this.Ge += speed * (1/1.4) * ((excite/this.syns.length) - this.Ge)
 		this.Ge = excite
 	}*/
-	updateInhib(layer){
+	updateInhib(inhibRadius){
 		let maxGe = 0, avgGe = 0
-		for(let x=-layer.inhibRadius; x<=layer.inhibRadius; x++){
-			for(let y=-layer.inhibRadius; y<=layer.inhibRadius; y++){
-				for(let z=-layer.inhibRadius; z<=layer.inhibRadius; z++){
-					let n = layer.getNode(x+this.x,y+this.y,z+this.z)
+		for(let x=-inhibRadius; x<=inhibRadius; x++){
+			for(let y=-inhibRadius; y<=inhibRadius; y++){
+				for(let z=-inhibRadius; z<=inhibRadius; z++){
+					let n = getNode(x+this.x,y+this.y,z+this.z)
 					if(!n)continue
 					maxGe = max(maxGe,n.Ge)
 					avgGe += n.Ge
 				}
 			}
 		}
-		avg /= layer.inhibRadius*layer.inhibRadius*layer.inhibRadius
+		avg /= inhibRadius*inhibRadius*inhibRadius
 		this.Gi = avgGe+maxAndAvgMix*(maxGe-avgGe)
 		// todo: add feedback inhib
 	}
 	updateActive(){
 		this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
-		this.Vm += this.Inet //(1/3.3) * this.Inet
+		this.Vm += this.Inet /*(1/3.3) * this.Inet*/
 		this.Vm = min(max(this.Vm,0),2)
 		let newAct
 		if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
@@ -128,7 +100,7 @@ class Ne{
 			let geThr = (this.Gi * (erevI - XX1threshold) + gbarL * (erevL - XX1threshold)) / (XX1threshold - erevE)
 			newAct = max(contrast(this.Ge-geThr), 0)
 		}
-		this.Act += (1/3.3) * (newAct-this.Act)
+		this.Act += newAct /*(1/3.3) * (newAct-this.Act)*/ + Math.random()*0.01
 	}
 	/*updateLernAvgs(){
 		this.AvgSS += (1/2)*(this.Act-this.AvgSS)
@@ -153,8 +125,55 @@ class Ne{
 		for(let s of this.syns) s.doLern(this)
 	}
 }
+//todo: bidirectional path have weight symmetry
+//todo: pools
+class Path{
+	syns = [] // array of arrays
+	activations
+	constructor({sender, reciever, type = "full"}){
+		this.reciever = reciever
+		this.sender = sender
+		/**
+		 * can be: full
+		 */
+		this.type = type
+		for(let i=0; i<reciever.nodes.length; i++){
+			this.syns.push(this.initSynsFor(reciever.nodes[i]))
+		}
+		this.activations = new Array(reciever.nodes.length)
+	}
+	initSynsFor(n){
+		let arr = []
+		switch(this.type){
+			case "full":{
+				for(let i=0; i<this.sender.nodes.length; i++){
+					arr.push(new Syn(0.1, i))
+				}
+				break
+			}
+		}
+		return arr
+	}
+	updateExcite(){
+		for(let i=0; i<this.reciever.nodes.length; i++){
+			this.activations[i] = 0
+			for(let s of this.syns[i]){
+				this.activations[i] += this.sender.nodes[s.otherSide].Act*s.Wt
+			}
+		}
+	}
+	doLern(){
+		for(let i=0; i<this.reciever.nodes.length; i++){
+			let nr = this.reciever.nodes[i]
+			for(let s of this.syns[i]){
+				s.doLern(this.sender.nodes[s.otherSide], nr)
+			}
+		}
+	}
+}
 class Layer{
 	nodes = []
+	sendingPaths = []
 	constructor({type="super", w,h=1,d=1, inputObj=null, inhibRadius=1}){
 		/**
 		 * type can be: super, input, target
@@ -176,13 +195,23 @@ class Layer{
 		this.inputObj = inputObj
 		this.inhibRadius = inhibRadius
 	}
+	updateNodesExcite(){
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].Ge = 0
+		}
+		for(let p of this.sendingPaths){
+			for(let i=0; i<this.nodes.length; i++){
+				this.nodes[i].Ge += p.activations[i]
+			}
+		}
+	}
 	/**
 	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
 	 * @returns true if any activation changes enough
 	 */
 	tick(phase){
 		let changed = false
-		//updateExcite should be done by Path
+		this.updateNodesExcite()
 		if(this.type === "input"){
 			for(let i=0; i<this.nodes.length; i++){
 				this.nodes[i].Ge = this.inputObj[i]
@@ -194,7 +223,7 @@ class Layer{
 			}
 		}
 		if(this.inhibRadius){
-			for(let n of this.nodes) n.updateInhib()
+			for(let n of this.nodes) n.updateInhib(inhibRadius)
 		}
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
@@ -206,7 +235,6 @@ class Layer{
 			}else{
 				n.updateLernAvgsAtPlusPhaseEnd()
 			}
-			n.Ge = 0 // because Path does updateExcite
 		}
 		return changed
 	}
@@ -219,22 +247,24 @@ class Network{
 	paths = []
 	/** @type {Array<Layer>} */
 	layers = []
+	/** @type {Array<Layer>} */
+	inputLayers = []
 	/**
 	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
 	 */
 	tickPhase(phase){
 		//todo: update them in correct order, when update one layer, update layers connected to it
-		let updated = new Set([/*put layer here*/]), nextUpdated = new Set()
+		let updated = new Set(this.inputLayers), nextUpdated = new Set()
 		while(updated.size){
+			for(let l of updated){
+				const changed = l.tick(phase)
+				if(!changed) updated.delete(l)
+			}
 			for(let p of this.paths){
 				if(updated.has(p.sender)){
 					p.updateExcite()
 					nextUpdated.add(p.reciever)
 				}
-			}
-			for(let l of nextUpdated){
-				const changed = l.tick(phase)
-				if(!changed) nextUpdated.delete(l)
 			}
 			let temp = updated
 			updated = nextUpdated
@@ -247,17 +277,35 @@ class Network{
 		this.tickPhase(1)
 		for(let p of this.paths) p.doLern()
 	}
-	addLayer(o){ let l = new Layer(o); this.layers.push(l); return l }
-	addPath(o){ let p = new Path(o); this.paths.push(p); return p }
+	addLayer(o){
+		let l = new Layer(o)
+		this.layers.push(l)
+		if(l.type === "input") this.inputLayers.push(l)
+		return l
+	}
+	addPath(o){
+		let p = new Path(o)
+		this.paths.push(p)
+		o.reciever.sendingPaths.push(p)
+		return p
+	}
 }
 
 
 let n = new Network(), inp=[], outp=[]
-let inply = n.addLayer({w:3,type:"input",inputObj:inp})
-let hidly = n.addLayer({w:3,type:"super"})
-let outly = n.addLayer({w:3,type:"target",inputObj:outp})
-n.addPath({sender:inply,reciever:hidly})
-n.addPath({sender:hidly,reciever:outly})
+let inply = n.addLayer({w:3,type:"input",inputObj:inp, inhibRadius:0})
+//let hidly = n.addLayer({w:3,type:"super"})
+let outly = n.addLayer({w:3,type:"target",inputObj:outp, inhibRadius:0})
+//n.addPath({sender:inply,reciever:hidly})
+//n.addPath({sender:hidly,reciever:outly})
+n.addPath({sender:inply,reciever:outly})
+
+inp.splice(0,inp.length, 1,0,0)
+outp.splice(0,outp.length, 0,0,0)
+n.tickPhase(0)
+console.log(inply)
+console.log(outly)
+debugger
 
 /*
 let n=new Ne(0,0,0), n2=new Ne(1,0,0)
