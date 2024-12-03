@@ -61,11 +61,9 @@ class Ne{
 	ActM //minus phase
 	ActP //plus phase
 	totalSynWeight = 0
-	x;y;z
-	constructor(x, y, z){
-		this.x = x
-		this.y = y
-		this.z = z
+	x;y;z;w
+	constructor(x, y, z, w){
+		this.x = x, this.y = y, this.z = z, this.w = w
 	}
 	/*updateExcite(){
 		let excite = 0
@@ -78,10 +76,12 @@ class Ne{
 		for(let x=-inhibRadius; x<=inhibRadius; x++){
 			for(let y=-inhibRadius; y<=inhibRadius; y++){
 				for(let z=-inhibRadius; z<=inhibRadius; z++){
-					let n = getNode(x+this.x,y+this.y,z+this.z)
-					if(!n)continue
-					maxGe = max(maxGe,n.Ge)
-					avgGe += n.Ge
+					for(let w=-inhibRadius; w<=inhibRadius; w++){
+						let n = getNode(x+this.x,y+this.y,z+this.z,w+this.w)
+						if(!n)continue
+						maxGe = max(maxGe,n.Ge)
+						avgGe += n.Ge
+					}
 				}
 			}
 		}
@@ -174,7 +174,6 @@ class Path{
 			let nr = this.reciever.nodes[i]
 			let si=0
 			for(let s of this.syns[i]){
-				if(i===1&&si++===0)debugger
 				s.doLern(this.sender.nodes[s.otherSide], nr)
 			}
 		}
@@ -184,16 +183,19 @@ class Path{
 class Layer{
 	nodes = []
 	sendingPaths = []
-	constructor({type="super", w,h=1,d=1, inputObj=null, inhibRadius=1}){
+	constructor({type="super", w0,w1=1,w2=1,w3=1, inputObj=null, inhibRadius=1}){
 		/**
 		 * type can be: super, input, target
 		*/
 		this.type = type
-		this.w=w;this.h=h;this.d=d
+		/** the dimensions, width */
+		this.w0=w0, this.w1=w1, this.w2=w2, this.w3=w3
 		for(let x=0;x<w;x++){
 			for(let y=0;y<h;y++){
 				for(let z=0;z<d;z++){
-					this.nodes.push(new Ne(x,y,z))
+					for(let w=0;w<d;w++){
+						this.nodes.push(new Ne(x,y,z))
+					}
 				}
 			}
 		}
@@ -245,8 +247,8 @@ class Layer{
 		}
 		console.log("layer tick "+this.type)
 	}
-	getNode(x,y=0,z=0){
-		return this.nodes[(x*this.w+y)*this.h+z]
+	getNode(x,y=0,z=0,w=0){
+		return this.nodes[((x*this.w0+y)*this.w1+z)*this.w2+w]
 	}
 }
 class Network{
