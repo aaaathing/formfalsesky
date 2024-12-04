@@ -71,24 +71,8 @@ class Ne{
 		//this.Ge += speed * (1/1.4) * ((excite/this.syns.length) - this.Ge)
 		this.Ge = excite
 	}*/
-	updateInhib(inhibRadius){
-		let maxGe = 0, avgGe = 0
-		for(let x=-inhibRadius; x<=inhibRadius; x++){
-			for(let y=-inhibRadius; y<=inhibRadius; y++){
-				for(let z=-inhibRadius; z<=inhibRadius; z++){
-					for(let w=-inhibRadius; w<=inhibRadius; w++){
-						let n = getNode(x+this.x,y+this.y,z+this.z,w+this.w)
-						if(!n)continue
-						maxGe = max(maxGe,n.Ge)
-						avgGe += n.Ge
-					}
-				}
-			}
-		}
-		avg /= inhibRadius*inhibRadius*inhibRadius
-		this.Gi = avgGe+maxAndAvgMix*(maxGe-avgGe)
-		// todo: add feedback inhib
-	}
+	/*updateInhib(inhibRadius){
+	}*/
 	updateActive(){
 		//this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
 		//this.Vm += this.Inet (1/3.3) * this.Inet
@@ -132,13 +116,13 @@ class Ne{
 class Path{
 	syns = [] // array of arrays
 	activations
-	constructor({sender, reciever, type = "full"}){
+	constructor({sender, reciever, type}){
 		this.reciever = reciever
 		this.sender = sender
 		/**
 		 * can be: full
 		 */
-		this.type = type
+		this.type = type || "full"
 		for(let i=0; i<reciever.nodes.length; i++){
 			this.syns.push(this.initSynsFor(reciever.nodes[i]))
 		}
@@ -183,17 +167,20 @@ class Path{
 class Layer{
 	nodes = []
 	sendingPaths = []
-	constructor({type="super", w0,w1=1,w2=1,w3=1, inputObj=null, inhibRadius=1}){
+	constructor({type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool}){
 		/**
 		 * type can be: super, input, target
 		*/
-		this.type = type
-		/** the dimensions, width */
-		this.w0=w0, this.w1=w1, this.w2=w2, this.w3=w3
-		for(let x=0;x<w;x++){
-			for(let y=0;y<h;y++){
-				for(let z=0;z<d;z++){
-					for(let w=0;w<d;w++){
+		this.type = type ?? "super"
+		/**
+		 * w0 and w1 for amount of pools
+		 * w2 and w3 for amount of things in pools
+		 */
+		this.w0=w0, this.w1=w1??1, this.w2=w2??1, this.w3=w3??1
+		for(let x=0;x<this.w0;x++){
+			for(let y=0;y<this.w1;y++){
+				for(let z=0;z<this.w2;z++){
+					for(let w=0;w<this.w3;w++){
 						this.nodes.push(new Ne(x,y,z))
 					}
 				}
@@ -204,10 +191,12 @@ class Layer{
 		 * if type is target, inputObj should be expected output
 		 * @type {Array<number>}
 		 */
-		this.inputObj = inputObj
-		this.inhibRadius = inhibRadius
+		this.inputObj = inputObj ?? null
+		this.inhibGainForPool = inhibGainForPool ?? 0
+		this.inhibGainForLayer = inhibGainForLayer ?? 1
 	}
-	updateNodesExcite(){
+	/** update Ge of nodes */
+	updateExcite(){
 		for(let i=0; i<this.nodes.length; i++){
 			this.nodes[i].Ge = 0
 		}
@@ -217,12 +206,43 @@ class Layer{
 			}
 		}
 	}
+	/** update Gi of nodes */
+	updateInhib(){
+		let maxGe = 0, avgGe = 0
+		for(let x=0; x<this.w0; x++){
+			for(let y=0; y<this.w1; y++){
+				let maxGePool = 0, avgGePool = 0
+				for(let z=0; z<this.w2; z++){
+					for(let w=0; w<this.w3; w++){
+						let n = this.getNode(x,y,z,w)
+						maxGe = max(maxGe,n.Ge)
+						avgGe += n.Ge
+						maxGePool = max(maxGe,n.Ge)
+						avgGePool += n.Ge
+					}
+				}
+				avgGePool /= this.w2*this.w3
+				let GiForPool = this.inhibGainForPool * avgGePool+maxAndAvgMix*(maxGePool-avgGePool)
+				for(let z=0; z<this.w2; z++){
+					for(let w=0; w<this.w3; w++){
+						this.getNode(x,y,z,w).Gi = GiForPool
+					}
+				}
+			}
+		}
+		avgGe /= this.w0*this.w1*this.w2*this.w3
+		let Gi = this.inhibGainForLayer * avgGe+maxAndAvgMix*(maxGe-avgGe)
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].Gi = max(this.nodes[i].Gi, Gi)
+		}
+		// todo: add feedback inhib
+	}
 	/**
 	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
 	 * @returns true if any activation changes enough
 	 */
 	tick(phase){
-		this.updateNodesExcite()
+		this.updateExcite()
 		if(this.type === "input"){
 			for(let i=0; i<this.nodes.length; i++){
 				this.nodes[i].Ge = this.inputObj[i]
@@ -233,8 +253,8 @@ class Layer{
 				this.nodes[i].Ge = this.inputObj[i]
 			}
 		}
-		if(this.inhibRadius){
-			for(let n of this.nodes) n.updateInhib(inhibRadius)
+		if(this.inhibGainForLayer || this.inhibGainForPool){
+			this.updateInhib()
 		}
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
@@ -248,7 +268,7 @@ class Layer{
 		console.log("layer tick "+this.type)
 	}
 	getNode(x,y=0,z=0,w=0){
-		return this.nodes[((x*this.w0+y)*this.w1+z)*this.w2+w]
+		return this.nodes[((x*this.w1+y)*this.w2+z)*this.w3+w]
 	}
 }
 class Network{
@@ -307,9 +327,9 @@ class Network{
 
 
 let n = new Network(), inp=[], outp=[]
-let inply = n.addLayer({w:3,type:"input",inputObj:inp, inhibRadius:0})
+let inply = n.addLayer({w0:3,type:"input",inputObj:inp,inhibGainForLayer:0})
 //let hidly = n.addLayer({w:3,type:"super"})
-let outly = n.addLayer({w:3,type:"target",inputObj:outp, inhibRadius:0})
+let outly = n.addLayer({w0:3,type:"target",inputObj:outp})
 //n.addPath({sender:inply,reciever:hidly})
 //n.addPath({sender:hidly,reciever:outly})
 let pt=n.addPath({sender:inply,reciever:outly})
