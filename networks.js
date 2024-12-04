@@ -1,12 +1,9 @@
-const speed = 1
-const maxAndAvgMix = 0.5
-const lernRate = 1
+/*
+networks.js
+*/
+
 /** if activation changes enough, other things can be updated */
 const activationChangeThreshold = 0.01
-
-// info: https://github.com/emer/leabra/blob/main/chans/chans.go
-const erevE = 1, erevL = 0.3, erevI = 0.25
-const gbarE = 1, gbarL = 0.1, gbarI = 1
 
 const XX1threshold = 0.5
 const XX1vmActiveThreshold = 0.01
@@ -34,7 +31,7 @@ class Syn{
 		this.Wt = SIG(this.LWt)
 		this.otherSide = otherSide
 	}
-	doLern(Send,Recv){
+	doLern(Send,Recv,lernRate){
 		let srs = Send.AvgSLrn * Recv.AvgSLrn
 		let srm = Send.AvgM * Recv.AvgM
 		let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
@@ -73,16 +70,16 @@ class Ne{
 	}*/
 	/*updateInhib(inhibRadius){
 	}*/
-	updateActive(){
+	updateActive(erev,gbar){
 		//this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
 		//this.Vm += this.Inet (1/3.3) * this.Inet
-		this.Vm = this.Ge * erevE + gbarL * erevL + this.Gi * erevI
+		this.Vm = this.Ge * erev.erevE + gbar.gbarL * erev.erevL + this.Gi * erev.erevI
 		this.Vm = min(max(this.Vm,0),2)
 		let newAct
 		if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
 			newAct = contrast(this.Vm-XX1threshold + Math.random()*0.01)
 		}else{
-			let geThr = (this.Gi * (erevI - XX1threshold) + gbarL * (erevL - XX1threshold)) / (XX1threshold - erevE)
+			let geThr = (this.Gi * (erev.erevI - XX1threshold) + gbar.gbarL * (erev.erevL - XX1threshold)) / (XX1threshold - erev.erevE)
 			newAct = contrast(this.Ge-geThr + Math.random()*0.01)
 		}
 		this.Act = newAct /*(1/3.3) * (newAct-this.Act)*/
@@ -116,7 +113,7 @@ class Ne{
 class Path{
 	syns = [] // array of arrays
 	activations
-	constructor({sender, reciever, type}){
+	constructor({sender, reciever, type, lernRate}){
 		this.reciever = reciever
 		this.sender = sender
 		/**
@@ -127,6 +124,7 @@ class Path{
 			this.syns.push(this.initSynsFor(reciever.nodes[i]))
 		}
 		this.activations = new Array(reciever.nodes.length).fill(0)
+		this.lernRate = lernRate ?? 1
 	}
 	initSynsFor(n){
 		let arr = []
@@ -158,7 +156,7 @@ class Path{
 			let nr = this.reciever.nodes[i]
 			let si=0
 			for(let s of this.syns[i]){
-				s.doLern(this.sender.nodes[s.otherSide], nr)
+				s.doLern(this.sender.nodes[s.otherSide], nr, this.lernRate)
 			}
 		}
 		console.log("path doLern "+this.type)
@@ -167,7 +165,7 @@ class Path{
 class Layer{
 	nodes = []
 	sendingPaths = []
-	constructor({type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool}){
+	constructor({type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
 		/**
 		 * type can be: super, input, target
 		*/
@@ -194,6 +192,12 @@ class Layer{
 		this.inputObj = inputObj ?? null
 		this.inhibGainForPool = inhibGainForPool ?? 0
 		this.inhibGainForLayer = inhibGainForLayer ?? 1
+
+		this.maxAndAvgMix = maxAndAvgMix ?? 0.5
+
+		// info: https://github.com/emer/leabra/blob/main/chans/chans.go
+		this.erev = erev ?? {erevE:1, erevL:0.3, erevI: 0.25}
+		this.gbar = gbar ?? {gbarE: 1, gbarL: 0.1, gbarI: 1}
 	}
 	/** update Ge of nodes */
 	updateExcite(){
@@ -222,7 +226,7 @@ class Layer{
 					}
 				}
 				avgGePool /= this.w2*this.w3
-				let GiForPool = this.inhibGainForPool * avgGePool+maxAndAvgMix*(maxGePool-avgGePool)
+				let GiForPool = this.inhibGainForPool * avgGePool+this.maxAndAvgMix*(maxGePool-avgGePool)
 				for(let z=0; z<this.w2; z++){
 					for(let w=0; w<this.w3; w++){
 						this.getNode(x,y,z,w).Gi = GiForPool
@@ -231,7 +235,7 @@ class Layer{
 			}
 		}
 		avgGe /= this.w0*this.w1*this.w2*this.w3
-		let Gi = this.inhibGainForLayer * avgGe+maxAndAvgMix*(maxGe-avgGe)
+		let Gi = this.inhibGainForLayer * avgGe+this.maxAndAvgMix*(maxGe-avgGe)
 		for(let i=0; i<this.nodes.length; i++){
 			this.nodes[i].Gi = max(this.nodes[i].Gi, Gi)
 		}
@@ -258,7 +262,7 @@ class Layer{
 		}
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
-			n.updateActive()
+			n.updateActive(this.erev,this.gbar)
 			if(phase === 0){
 				n.updateLernAvgsAtMinusPhaseEnd()
 			}else{
@@ -325,7 +329,9 @@ class Network{
 	}
 }
 
+module.exports.Network = Network
 
+/*
 let n = new Network(), inp=[], outp=[]
 let inply = n.addLayer({w0:3,type:"input",inputObj:inp,inhibGainForLayer:0})
 //let hidly = n.addLayer({w:3,type:"super"})
@@ -349,6 +355,7 @@ console.log(inply)
 console.log(outly)
 console.log(pt)
 debugger
+*/
 
 /*
 let n=new Ne(0,0,0), n2=new Ne(1,0,0)

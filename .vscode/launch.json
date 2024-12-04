@@ -6,7 +6,7 @@
 	"configurations": [
 		{
 			"name": "Launch certain Program",
-			"program": "${workspaceFolder}/networks.js",
+			"program": "${workspaceFolder}/show-network.js",
 			"request": "launch",
 			"skipFiles": [
 				"<node_internals>/**"
