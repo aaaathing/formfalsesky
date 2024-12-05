@@ -12,7 +12,6 @@ mainContainer.addChildView(sidebar)
 
 const font = gui.Font.create("", 24, "normal", "normal")
 
-
 const net = new (require("./networks.js")).Network()
 let inp=[], outp=[]
 let inply = net.addLayer({name:"inply",w0:3,type:"input",inputObj:inp,inhibGainForLayer:0})
@@ -65,7 +64,7 @@ function addShower(l){
 	scrollArea.addChildView(showContainer)
 	/** @param {gui.Painter} ctx */
 	showContainer.onDraw = (self, ctx) => {
-		// Draw the shadow of heart.
+		showContainer.setTooltip("")
 		for(let x=0;x<l.w0;x++) for(let y=0;y<l.w1;y++) for(let z=0;z<l.w2;z++) for(let w=0;w<l.w3;w++){
 			let n = l.getNode(x,y,z,w)
 			let rect = {x:(x*l.w2+z)*scale, y:(y*l.w3+w)*scale, width:scale,height:scale}
@@ -88,6 +87,7 @@ function addShower(l){
 				ctx.setStrokeColor(gui.Color.rgb(127,127,255))
 				ctx.setLineWidth(4)
 				ctx.strokeRect(rect)
+				showContainer.setTooltip("selected: "+value)
 			}
 		}
 	}
