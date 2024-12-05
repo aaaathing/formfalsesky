@@ -113,13 +113,14 @@ class Ne{
 class Path{
 	syns = [] // array of arrays
 	activations
-	constructor({sender, reciever, type, lernRate}){
+	constructor({name, sender, reciever, type, lernRate}){
+		this.name = name ?? "unnamed"
 		this.reciever = reciever
 		this.sender = sender
 		/**
 		 * can be: full
 		 */
-		this.type = type || "full"
+		this.type = type ?? "full"
 		for(let i=0; i<reciever.nodes.length; i++){
 			this.syns.push(this.initSynsFor(reciever.nodes[i]))
 		}
@@ -148,7 +149,7 @@ class Path{
 			}
 			if(abs(prevAct-this.activations[i]) > activationChangeThreshold) changed = true
 		}
-		console.log("path updateExcite "+this.type)
+		console.log("path updateExcite "+this.name)
 		return changed
 	}
 	doLern(){
@@ -159,13 +160,17 @@ class Path{
 				s.doLern(this.sender.nodes[s.otherSide], nr, this.lernRate)
 			}
 		}
-		console.log("path doLern "+this.type)
+		console.log("path doLern "+this.name)
 	}
 }
 class Layer{
 	nodes = []
+	/** paths that send to this layer */
 	sendingPaths = []
-	constructor({type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
+	/** paths that recieve from this layer */
+	recievingPaths = []
+	constructor({name,type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
+		this.name = name ?? "unnamed"
 		/**
 		 * type can be: super, input, target
 		*/
@@ -269,10 +274,13 @@ class Layer{
 				n.updateLernAvgsAtPlusPhaseEnd()
 			}
 		}
-		console.log("layer tick "+this.type)
+		console.log("layer tick "+this.name)
 	}
 	getNode(x,y=0,z=0,w=0){
 		return this.nodes[((x*this.w1+y)*this.w2+z)*this.w3+w]
+	}
+	getNodeIndex(x,y=0,z=0,w=0){
+		return ((x*this.w1+y)*this.w2+z)*this.w3+w
 	}
 }
 class Network{
@@ -325,11 +333,39 @@ class Network{
 		let p = new Path(o)
 		this.paths.push(p)
 		o.reciever.sendingPaths.push(p)
+		o.sender.recievingPaths.push(p)
 		return p
+	}
+	getRecieverOfNodeInThisLayer(nodeIndex,layer,thisLayer,thisNodeIndex){
+		for(let p of thisLayer.sendingPaths){
+			if(p.sender === layer){
+				let s = p.syns[thisNodeIndex]
+				for(let i=0; i<s.length; i++){
+					if(s[i].otherSide === nodeIndex){
+						return s[i]
+					}
+				}
+				break
+			}
+		}
+	}
+	getSenderOfNodeInThisNode(nodeIndex,layer,thisLayer,thisNodeIndex){
+		for(let p of thisLayer.recievingPaths){
+			if(p.reciever === layer){
+				let s = p.syns[nodeIndex]
+				for(let i=0; i<s.length; i++){
+					if(s[i].otherSide === thisNodeIndex){
+						return s[i]
+					}
+				}
+				break
+			}
+		}
 	}
 }
 
 module.exports.Network = Network
+
 
 /*
 let n = new Network(), inp=[], outp=[]
