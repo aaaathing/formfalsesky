@@ -15,7 +15,7 @@ const XCALDThr = 0.0001, XCALDRev = 0.1
 function XCAL(x, th){
 	return (x < XCALDThr) ? 0 : (x > th * XCALDRev) ? (x - th) : (-x * ((1-XCALDRev)/XCALDRev))
 }
-function Sig(w, gain=3, off=1) {
+function Sig(w, gain=6, off=1) {
 	if(w <= 0) {
 		return 0
 	}
@@ -24,7 +24,7 @@ function Sig(w, gain=3, off=1) {
 	}
 	return (1 / (1 + Math.pow((off*(1-w))/w, gain)))
 }
-function SigInv(w, gain=3, off=1) {
+function SigInv(w, gain=6, off=1) {
 	if(w <= 0){
 		return 0
 	}
@@ -71,7 +71,7 @@ class Ne{
 	AvgSLrn = 0
 	ActM //minus phase
 	ActP //plus phase
-	totalSynWeight = 0
+	deepBurst = 0
 	x;y;z;w
 	constructor(x, y, z, w){
 		this.x = x, this.y = y, this.z = z, this.w = w
@@ -123,10 +123,10 @@ class Ne{
 	}*/
 }
 //todo: bidirectional path have weight symmetry
-//todo: pools
 class Path{
 	syns = [] // array of arrays
 	activations
+	GScale = 1
 	constructor({name, sender, reciever, type, lernRate}){
 		this.name = name ?? "unnamed"
 		this.reciever = reciever
@@ -153,35 +153,42 @@ class Path{
 		}
 		return arr
 	}
-	updateExcite(){
+	updateExcite(updated){
 		let changed = false
 		for(let i=0; i<this.reciever.nodes.length; i++){
 			let prevAct = this.activations[i]
 			this.activations[i] = 0
-			let totalWeight = 0
 			for(let s of this.syns[i]){
-				this.activations[i] += this.sender.nodes[s.otherSide].Act*s.Wt
-				totalWeight += s.Wt
+				this.activations[i] += this.sender.nodes[s.otherSide].Act*s.Wt*this.GScale
 			}
 			if(abs(prevAct-this.activations[i]) > activationChangeThreshold) changed = true
+		}
+		console.log("path updateExcite "+this.name)
+		if(changed) updated.add(this.reciever)
+	}
+	updateCtxtGe(updated){ // done at end of quarter
+		for(let i=0; i<this.reciever.nodes.length; i++){
+			for(let s of this.syns[i]){
+				this.activations[i] += this.sender.nodes[s.otherSide].deepBurst*s.Wt*this.GScale
+			}
+		}
+		console.log("path updateCtxtGe "+this.name)
+	}
+	doLern(){
+		for(let i=0; i<this.reciever.nodes.length; i++){
+			let nr = this.reciever.nodes[i]
+			let si=0
+			let totalWeight = 0
+			for(let s of this.syns[i]){
+				s.doLern(this.sender.nodes[s.otherSide], nr, this.lernRate)
+				totalWeight += s.Wt
+			}
 			if(totalWeight < XX1threshold){ // increase weight if not enough
 				let diff = (XX1threshold-totalWeight)/this.syns[i].length
 				for(let s of this.syns[i]){
 					s.Wt += diff + Math.random()*0.05
 					s.LWt = SigInv(s.Wt)
 				}
-				changed = true
-			}
-		}
-		console.log("path updateExcite "+this.name)
-		return changed
-	}
-	doLern(){
-		for(let i=0; i<this.reciever.nodes.length; i++){
-			let nr = this.reciever.nodes[i]
-			let si=0
-			for(let s of this.syns[i]){
-				s.doLern(this.sender.nodes[s.otherSide], nr, this.lernRate)
 			}
 		}
 		console.log("path doLern "+this.name)
@@ -292,13 +299,65 @@ class Layer{
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
 			n.updateActive(this.erev,this.gbar)
+		}
+		console.log("layer tick "+this.name)
+	}
+	cycleEnd(updated){
+		switch(this.type){
+			case "deepCt":{
+				for(let i=0; i<this.nodes.length; i++){
+					this.nodes[i].deepBurst = this.nodes[i].Act
+				}
+				break
+			}
+			case "super":{
+				let maxAct = 0, avgAct = 0
+				for(let x=0; x<this.w0; x++){
+					for(let y=0; y<this.w1; y++){
+						for(let z=0; z<this.w2; z++){
+							for(let w=0; w<this.w3; w++){
+								let n = this.getNode(x,y,z,w)
+								maxAct = max(maxAct,n.Act)
+								avgAct += n.Act
+							}
+						}
+					}
+				}
+				avgAct /= this.w0*this.w1*this.w2*this.w3
+				let threshold = max(avgAct + this.maxAndAvgMix*(maxAct-avgAct), 0.1)
+				for(let i=0; i<this.nodes.length; i++){
+					this.nodes[i].deepBurst = this.nodes[i].Act > threshold ? this.nodes[i].Act : 0
+				}
+				break
+			}
+		}
+		for(let p of this.recievingPaths){
+			p.updateExcite(updated)
+		}
+	}
+	quarterEnd(phase,updated){
+		for(let i=0; i<this.nodes.length; i++){
+			let n = this.nodes[i]
 			if(phase === 0){
 				n.updateLernAvgsAtMinusPhaseEnd()
 			}else{
 				n.updateLernAvgsAtPlusPhaseEnd()
 			}
 		}
-		console.log("layer tick "+this.name)
+		switch(this.type){
+			case "deepSuper":{
+				for(let p of this.recievingPaths){
+					p.updateCtxtGe(updated)
+				}
+				break
+			}
+			case "deepCt":{
+				for(let p of this.recievingPaths){
+					p.updateCtxtGe(updated)
+				}
+				break
+			}
+		}
 	}
 	getNode(x,y=0,z=0,w=0){
 		return this.nodes[((x*this.w1+y)*this.w2+z)*this.w3+w]
@@ -323,16 +382,16 @@ class Network{
 			for(let l of updated){
 				l.tick(phase)
 			}
-			for(let p of this.paths){
-				if(updated.has(p.sender)){
-					let changed = p.updateExcite()
-					if(changed) nextUpdated.add(p.reciever)
-				}
+			for(let l of this.layers/*todo: maybe change to updated*/){
+				l.cycleEnd(nextUpdated)
 			}
 			let temp = updated
 			updated = nextUpdated
 			temp.clear()
 			nextUpdated = temp
+		}
+		for(let l of this.layers){
+			l.quarterEnd(phase)
 		}
 	}
 	tick(){
