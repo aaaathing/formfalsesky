@@ -15,21 +15,50 @@ const font = gui.Font.create("", 24, "normal", "normal")
 const net = new (require("./networks.js")).Network()
 let inp=[], outp=[]
 let inply = net.addLayer({name:"inply",w0:3,type:"input",inputObj:inp,inhibGainForLayer:0})
-//let hidly = net.addLayer({name:"hidly",w0:3,type:"super"})
+let hidly = net.addLayer({name:"hidly",w0:3,type:"super"})
 let outly = net.addLayer({name:"outly",w0:3,type:"target",inputObj:outp})
-//net.addPath({sender:inply,reciever:hidly})
-net.addPath({sender:inply,reciever:outly})
-inp.splice(0,inp.length, 1,0,0)
-outp.splice(0,outp.length, 0,1,0)
+net.addPath({sender:inply,reciever:hidly})
+net.addPath({sender:hidly,reciever:outly})
 
-const save = gui.Button.create('')
-save.setFont(font)
-save.setTitle("do it (tick)")
-save.onClick = () => {
+let inputsToInput = []
+for(let i=0;i<40;i++) inputsToInput.push([[1,0,0],[0,1,0]])
+for(let i=0;i<40;i++) inputsToInput.push([[1,0,0],[1,0,0]])
+let inputsToInputIdx = 0
+function step(){
+	console.clear()
+	info.setText(""+inputsToInputIdx)
+	if(inputsToInput[inputsToInputIdx]){
+		inp.splice(0,inp.length, ...inputsToInput[inputsToInputIdx][0])
+		outp.splice(0,outp.length, ...inputsToInput[inputsToInputIdx][1])
+	}
+	inputsToInputIdx++
 	net.tick()
 	for(let i of allShowers) i.schedulePaint()
 }
+
+const save = gui.Button.create('step')
+save.setFont(font)
+save.onClick = step
 sidebar.addChildView(save)
+
+let running = false
+const runBtn = gui.Button.create('run')
+runBtn.setFont(font)
+runBtn.onClick = () => {
+	running = true
+	function f(){
+		step()
+		if(running) gui.MessageLoop.postDelayedTask(500,f)
+	}
+	f()
+}
+sidebar.addChildView(runBtn)
+const stopRunBtn = gui.Button.create('stop run')
+stopRunBtn.setFont(font)
+stopRunBtn.onClick = () => {
+	running = false
+}
+sidebar.addChildView(stopRunBtn)
 
 let showProp = "Act"
 let showPropPicker = gui.Picker.create('')
@@ -37,13 +66,18 @@ showPropPicker.setFont(font)
 showPropPicker.addItem("Act")
 showPropPicker.addItem("Ge")
 showPropPicker.addItem("Gi")
-showPropPicker.addItem("reciever Wt")
-showPropPicker.addItem("sender Wt")
+showPropPicker.addItem("ActM")
+showPropPicker.addItem("to reciever Wt")
+showPropPicker.addItem("from sender Wt")
 sidebar.addChildView(showPropPicker)
 showPropPicker.onSelectionChange = () => {
 	showProp = showPropPicker.getSelectedItem()
 	for(let i of allShowers) i.schedulePaint()
 }
+
+const info = gui.Label.create('')
+info.setFont(font)
+sidebar.addChildView(info)
 
 const scroll = gui.Scroll.create()
 const scrollArea = gui.Container.create()
@@ -52,7 +86,11 @@ scroll.setContentView(scrollArea)
 scroll.setStyle({flex: 1})
 mainContainer.addChildView(scroll)
 
+const whiteTextAttr = {color:"#fff", font:gui.Font.create("monospace", 16, "normal", "normal")}
+const blackTextAttr = {color:"#000", font:gui.Font.create("monospace", 16, "normal", "normal")}
+
 let selectedNode, selectedNodeLayer, selectedNodeIndex
+let selectedValueNode
 let allShowers = []
 function addShower(l){
 	let text = gui.Label.createWithAttributedText(gui.AttributedText.create(l.name, {color:"#000",font}))
@@ -73,10 +111,11 @@ function addShower(l){
 				case "Act":value=n.Act;break
 				case "Ge":value=n.Ge;break
 				case "Gi":value=n.Gi;break
-				case "reciever Wt":
+				case "ActM":value=n.ActM;break
+				case "to reciever Wt":
 					value = net.getRecieverOfNodeInThisLayer(selectedNodeIndex,selectedNodeLayer,l,l.getNodeIndex(x,y,z,w))?.Wt
 					break
-				case "sender Wt":
+				case "from sender Wt":
 					value = net.getSenderOfNodeInThisNode(selectedNodeIndex,selectedNodeLayer,l,l.getNodeIndex(x,y,z,w))?.Wt
 					break
 			}
@@ -87,15 +126,23 @@ function addShower(l){
 				ctx.setStrokeColor(gui.Color.rgb(127,127,255))
 				ctx.setLineWidth(4)
 				ctx.strokeRect(rect)
+			}
+			if(n === selectedValueNode){
 				showContainer.setTooltip("selected: "+value)
+				ctx.drawText((+value).toFixed(3),rect, value>0.5?blackTextAttr:whiteTextAttr)
 			}
 		}
 	}
 	showContainer.onMouseUp = (self, event) => {
 		const sx = event.positionInView.x/scale, sy = event.positionInView.y/scale
-		selectedNodeIndex = l.getNodeIndex(Math.floor(sx/l.w2), Math.floor(sy/l.w3), Math.floor(sx%l.w2), Math.floor(sy%l.w3))
-		selectedNode = l.nodes[selectedNodeIndex]
-		selectedNodeLayer = l
+		const idx = l.getNodeIndex(Math.floor(sx/l.w2), Math.floor(sy/l.w3), Math.floor(sx%l.w2), Math.floor(sy%l.w3))
+		if(event.button === 2){
+			selectedValueNode = l.nodes[idx]
+		}else{
+			selectedNodeIndex = idx
+			selectedNode = l.nodes[idx]
+			selectedNodeLayer = l
+		}
 		for(let i of allShowers) i.schedulePaint()
 	}
 	allShowers.push(showContainer)

@@ -15,9 +15,23 @@ const XCALDThr = 0.0001, XCALDRev = 0.1
 function XCAL(x, th){
 	return (x < XCALDThr) ? 0 : (x > th * XCALDRev) ? (x - th) : (-x * ((1-XCALDRev)/XCALDRev))
 }
-const SIGOff = 0.5
-function SIG(w){
-	return 1 / (1 + (SIGOff * (1-w)/w)**2.5)
+function Sig(w, gain=3, off=1) {
+	if(w <= 0) {
+		return 0
+	}
+	if(w >= 1) {
+		return 1
+	}
+	return (1 / (1 + Math.pow((off*(1-w))/w, gain)))
+}
+function SigInv(w, gain=3, off=1) {
+	if(w <= 0){
+		return 0
+	}
+	if(w >= 1){
+		return 1
+	}
+	return 1.0 / (1.0 + Math.pow((1.0-w)/w, 1/gain)/off)
 }
 
 
@@ -28,7 +42,7 @@ class Syn{
 	otherSide
 	constructor(weight,otherSide){
 		this.LWt = weight
-		this.Wt = SIG(this.LWt)
+		this.Wt = Sig(this.LWt)
 		this.otherSide = otherSide
 	}
 	doLern(Send,Recv,lernRate){
@@ -39,7 +53,7 @@ class Syn{
 		//todo: maybe balance
 		this.LWt += dwt*lernRate
 		this.LWt = max(min(this.LWt, 1),0)
-		this.Wt = SIG(this.LWt)
+		this.Wt = Sig(this.LWt)
 		if(isNaN(this.Wt))debugger
 	}
 }
@@ -73,15 +87,15 @@ class Ne{
 	updateActive(erev,gbar){
 		//this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
 		//this.Vm += this.Inet (1/3.3) * this.Inet
-		this.Vm = this.Ge * erev.erevE + gbar.gbarL * erev.erevL + this.Gi * erev.erevI
-		this.Vm = min(max(this.Vm,0),2)
+		/*this.Vm = this.Ge * erev.erevE + gbar.gbarL * erev.erevL + this.Gi * erev.erevI
+		this.Vm = min(max(this.Vm,0),2)*/
 		let newAct
-		if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
+		/*if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
 			newAct = contrast(this.Vm-XX1threshold + Math.random()*0.01)
-		}else{
-			let geThr = (this.Gi * (erev.erevI - XX1threshold) + gbar.gbarL * (erev.erevL - XX1threshold)) / (XX1threshold - erev.erevE)
-			newAct = contrast(this.Ge-geThr + Math.random()*0.01)
-		}
+		}else{*/
+		let geThr = (this.Gi * (erev.erevI - XX1threshold) + gbar.gbarL * (erev.erevL - XX1threshold)) / (XX1threshold - erev.erevE)
+		newAct = contrast(this.Ge-geThr + Math.random()*0.01)
+		
 		this.Act = newAct /*(1/3.3) * (newAct-this.Act)*/
 	}
 	/*updateLernAvgs(){
@@ -144,10 +158,20 @@ class Path{
 		for(let i=0; i<this.reciever.nodes.length; i++){
 			let prevAct = this.activations[i]
 			this.activations[i] = 0
+			let totalWeight = 0
 			for(let s of this.syns[i]){
 				this.activations[i] += this.sender.nodes[s.otherSide].Act*s.Wt
+				totalWeight += s.Wt
 			}
 			if(abs(prevAct-this.activations[i]) > activationChangeThreshold) changed = true
+			if(totalWeight < XX1threshold){ // increase weight if not enough
+				let diff = (XX1threshold-totalWeight)/this.syns[i].length
+				for(let s of this.syns[i]){
+					s.Wt += diff + Math.random()*0.05
+					s.LWt = SigInv(s.Wt)
+				}
+				changed = true
+			}
 		}
 		console.log("path updateExcite "+this.name)
 		return changed
