@@ -45,17 +45,6 @@ class Syn{
 		this.Wt = Sig(this.LWt)
 		this.otherSide = otherSide
 	}
-	doLern(Send,Recv,lernRate){
-		let srs = Send.AvgSLrn * Recv.AvgSLrn
-		let srm = Send.AvgM * Recv.AvgM
-		let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
-		//todo: maybe normalize dwt
-		//todo: maybe balance
-		this.LWt += dwt*lernRate
-		this.LWt = max(min(this.LWt, 1),0)
-		this.Wt = Sig(this.LWt)
-		if(isNaN(this.Wt))debugger
-	}
 }
 class Ne{
 	Act = 0
@@ -72,6 +61,7 @@ class Ne{
 	ActM //minus phase
 	ActP //plus phase
 	deepBurst = 0
+	deepBurstPrev = 0
 	x;y;z;w
 	constructor(x, y, z, w){
 		this.x = x, this.y = y, this.z = z, this.w = w
@@ -184,12 +174,38 @@ class Path{
 	}
 	doLern(){
 		for(let i=0; i<this.reciever.nodes.length; i++){
-			let nr = this.reciever.nodes[i]
-			let si=0
+			let Recv = this.reciever.nodes[i]
+			const lernRate = this.lernRate
 			let totalWeight = 0
-			for(let s of this.syns[i]){
-				s.doLern(this.sender.nodes[s.otherSide], nr, this.lernRate)
-				totalWeight += s.Wt
+			switch(this.type){
+				case "CTtoCtxt":
+					const isSuper = this.sender.type === "super"
+					for(let s of this.syns[i]){
+						const sact = isSuper ? this.sender.nodes[s.otherSide].deepBurstPrev : this.sender.nodes[s.otherSide].ActM /*more correct if it is Q0*/
+						let srs = sact * Recv.AvgSLrn
+						let srm = sact * Recv.AvgM
+						let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
+						//todo: maybe normalize dwt
+						//todo: maybe balance
+						this.LWt += dwt*lernRate
+						this.LWt = max(min(this.LWt, 1),0)
+						this.Wt = Sig(this.LWt)
+						totalWeight += s.Wt
+					}
+					break
+				default:
+					for(let s of this.syns[i]){
+						const Send = this.sender.nodes[s.otherSide]
+						let srs = Send.AvgSLrn * Recv.AvgSLrn
+						let srm = Send.AvgM * Recv.AvgM
+						let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
+						//todo: maybe normalize dwt
+						//todo: maybe balance
+						this.LWt += dwt*lernRate
+						this.LWt = max(min(this.LWt, 1),0)
+						this.Wt = Sig(this.LWt)
+						totalWeight += s.Wt
+					}
 			}
 			if(totalWeight < XX1threshold){ // increase weight if not enough
 				let diff = (XX1threshold-totalWeight)/this.syns[i].length
@@ -222,7 +238,7 @@ class Layer{
 	constructor({name,type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
 		this.name = name ?? "unnamed"
 		/**
-		 * type can be: super, input, target, deepCt, deepPulvinar, 
+		 * type can be: super, input, target, deepCT, deepPulvinar, deepTRN
 		*/
 		this.type = type ?? "super"
 		/**
@@ -392,7 +408,7 @@ class Layer{
 	}
 	cycleEnd(updated){
 		switch(this.type){
-			case "deepCt":{ //todo: only do if needed
+			case "deepCT":{ //todo: only do if needed
 				for(let i=0; i<this.nodes.length; i++){
 					this.nodes[i].deepBurst = this.nodes[i].Act
 				}
@@ -422,11 +438,16 @@ class Layer{
 		switch(this.type){
 			case "super":{
 				for(let p of this.recievingPaths){
-					if(p.type === "CTtoCtxt") p.sendCtxtGe()
+					if(p.type === "CTtoCtxt"){
+						p.sendCtxtGe()
+						for(let i=0; i<this.nodes.length; i++){
+							this.nodes[i].deepBurstPrev = this.nodes[i].deepBurst
+						}
+					}
 				}
 				break
 			}
-			case "deepCt":{
+			case "deepCT":{
 				for(let p of this.recievingPaths){
 					if(p.type === "CTtoCtxt") p.sendCtxtGe()
 				}
