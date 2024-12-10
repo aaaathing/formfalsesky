@@ -202,6 +202,12 @@ class Path{
 		console.log("path doLern "+this.name)
 	}
 }
+class Driver{
+	driverLayer
+	constructor(driverLayer){
+		this.driverLayer = driverLayer
+	}
+}
 class Pool{
 	maxAct = 0
 	avgAct = 0
@@ -216,12 +222,15 @@ class Layer{
 	constructor({name,type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
 		this.name = name ?? "unnamed"
 		/**
-		 * type can be: super, input, target, deepCt, pulvinar, 
+		 * type can be: super, input, target, deepCt, deepPulvinar, 
 		*/
 		this.type = type ?? "super"
 		/**
 		 * w0 and w1 for amount of pools
-		 * w2 and w3 for amount of things in pools
+		 * w2 and w3 for amount of nodes in pools
+		 * x and y for position of pools
+		 * z and w for position of nodes in pools
+		 * x is most significant in indexes
 		 */
 		this.w0=w0, this.w1=w1??1, this.w2=w2??1, this.w3=w3??1
 		for(let x=0;x<this.w0;x++){
@@ -249,40 +258,43 @@ class Layer{
 		// info: https://github.com/emer/leabra/blob/main/chans/chans.go
 		this.erev = erev ?? {erevE:1, erevL:0.3, erevI: 0.25}
 		this.gbar = gbar ?? {gbarE: 1, gbarL: 0.1, gbarI: 1}
+
+		if(this.type === "deepPulvinar"){
+			/** @type {Array<Driver>} */
+			this.drivers = []
+		}
 	}
 	/** update Ge of nodes */
 	recieveFromPath(quarter){
 		switch(this.type){
-			case "pulvinar":{
+			case "deepPulvinar":{
 				if(quarter === 4){
-					for(let p of this.sendingPaths){//todo: add class for driver
-						if(p.isDriver){
-							const driverLayer = p.driverLayer, isSuper = driverLayer.type === "super"
-							const drvAct = driverLayer.bigPool.maxAct, drvInhib = min(drvAct/0.6, 1)
-							// only if this layer is 2d and driver layer is 4d
-							for(let x=0; x<driverLayer.w0; x++){
-								for(let y=0; y<driverLayer.w1; y++){
-									let maxDrvAct = 0, avgDrvAct = 0
-									let maxActPool = this.pools[x*this.w1+y].maxAct
-									for(let z=0; z<driverLayer.w2; z++){
-										for(let w=0; w<driverLayer.w3; w++){
-											let pi = w*driverLayer.w0+z
-											let pni = pi*driverLayer.w2*driverLayer.w3 + x*driverLayer.w0+y // what does this mean?
-											let drvAct = (isSuper ? driverLayer.nodes[pni].deepBurst : driverLayer.nodes[pni].Act) / max(maxActPool, 0.1)
-											maxDrvAct = max(maxDrvAct, drvAct)
-											avgDrvAct += drvAct
-										}
+					let offset = 0
+					for(let p of this.drivers){
+						const driverLayer = p.driverLayer, isSuper = driverLayer.type === "super"
+						const drvAct = driverLayer.bigPool.maxAct, drvInhib = min(drvAct/0.6, 1)
+						// only if this layer is 2d and driver layer is 4d or 2d
+						for(let z=0; z<driverLayer.w2; z++){
+							for(let w=0; w<driverLayer.w3; w++){
+								let maxDrvAct = 0, avgDrvAct = 0
+								for(let x=0; x<driverLayer.w0; x++){
+									for(let y=0; y<driverLayer.w1; y++){
+										let pi = x*driverLayer.w1+y
+										let pool = driverLayer.pools[pi]
+										let pni = (pi*driverLayer.w2 + w)*driverLayer.w3 + z
+										let drvAct = (isSuper ? driverLayer.nodes[pni].deepBurst : driverLayer.nodes[pni].Act) / max(pool.maxAct, 0.1)
+										maxDrvAct = max(maxDrvAct, drvAct)
+										//if(pool.maxAct > 0.5)
+										avgDrvAct += drvAct
 									}
-									avgDrvAct /= driverLayer.w2*driverLayer.w3
-									if(maxActPool <= 0.5) avgDrvAct = 0
-									let tni = p.offset + x*driverLayer.w0+y
-									// todo: maybe add binary option
-									let drvGe = (avgDrvAct+this.maxAndAvgMix*(maxDrvAct-avgDrvAct)) * 0.3
-									let thisNode = this.nodes[tni]
-									thisNode.Ge = /*(1-drvInhib)*thisNode.Ge +*/ drvGe
 								}
+								avgDrvAct /= driverLayer.w0*driverLayer.w1
+								// todo: maybe add binary option
+								let drvGe = (avgDrvAct+this.maxAndAvgMix*(maxDrvAct-avgDrvAct)) * 0.3
+								this.nodes[offset + z*driverLayer.w4+w].Ge = drvGe /* + (1-drvInhib)*thisNode.Ge*/
 							}
 						}
+						offset += driverLayer.w2*driverLayer.w3
 					}
 				}else break
 				return
@@ -317,7 +329,7 @@ class Layer{
 				let GiForPool = this.inhibGainForPool * avgGePool+this.maxAndAvgMix*(maxGePool-avgGePool)
 				for(let z=0; z<this.w2; z++){
 					for(let w=0; w<this.w3; w++){
-						this.getNode(x,y,z,w).Gi = GiForPool //todo: use pools
+						this.getNode(x,y,z,w).Gi = GiForPool //todo: maybe use pools
 					}
 				}
 			}
@@ -380,27 +392,14 @@ class Layer{
 	}
 	cycleEnd(updated){
 		switch(this.type){
-			case "deepCt":{ //todo: move these to quarterEnd and only do if needed
+			case "deepCt":{ //todo: only do if needed
 				for(let i=0; i<this.nodes.length; i++){
 					this.nodes[i].deepBurst = this.nodes[i].Act
 				}
 				break
 			}
-			case "super":{ //todo: move these to quarterEnd and only do if needed
-				let maxAct = 0, avgAct = 0
-				for(let x=0; x<this.w0; x++){
-					for(let y=0; y<this.w1; y++){
-						for(let z=0; z<this.w2; z++){
-							for(let w=0; w<this.w3; w++){
-								let n = this.getNode(x,y,z,w)
-								maxAct = max(maxAct,n.Act)
-								avgAct += n.Act
-							}
-						}
-					}
-				}
-				avgAct /= this.w0*this.w1*this.w2*this.w3
-				let threshold = max(avgAct + this.maxAndAvgMix*(maxAct-avgAct), 0.1)
+			case "super":{ //todo: only do if needed
+				let threshold = max(this.bigPool.avgAct + this.maxAndAvgMix*(this.bigPool.maxAct-this.bigPool.avgAct), 0.1)
 				for(let i=0; i<this.nodes.length; i++){
 					this.nodes[i].deepBurst = this.nodes[i].Act > threshold ? this.nodes[i].Act : 0
 				}
@@ -462,7 +461,7 @@ class Network{
 			for(let l of updated){
 				l.updateMaxAndAvgAct()
 			}
-			for(let l of this.layers/*todo: maybe change to updated*/){
+			for(let l of updated){
 				l.cycleEnd(nextUpdated)
 			}
 			let temp = updated
