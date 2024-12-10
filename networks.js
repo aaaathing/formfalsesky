@@ -125,25 +125,29 @@ class Ne{
 //todo: bidirectional path have weight symmetry
 class Path{
 	syns = [] // array of arrays
-	activations
+	excitations
 	GScale = 1
-	constructor({name, sender, reciever, type, lernRate}){
+	constructor({name, sender, reciever, type, lernRate, shape}){
 		this.name = name ?? "unnamed"
 		this.reciever = reciever
 		this.sender = sender
 		/**
+		 * can be: normal, CTtoCtxt
+		 */
+		this.type = type ?? "normal"
+		/**
 		 * can be: full
 		 */
-		this.type = type ?? "full"
+		this.shape = shape ?? "full"
 		for(let i=0; i<reciever.nodes.length; i++){
 			this.syns.push(this.initSynsFor(reciever.nodes[i]))
 		}
-		this.activations = new Array(reciever.nodes.length).fill(0)
+		this.excitations = new Array(reciever.nodes.length).fill(0)
 		this.lernRate = lernRate ?? 1
 	}
 	initSynsFor(n){
 		let arr = []
-		switch(this.type){
+		switch(this.shape){
 			case "full":{
 				for(let i=0; i<this.sender.nodes.length; i++){
 					arr.push(new Syn(0.1, i))
@@ -153,26 +157,30 @@ class Path{
 		}
 		return arr
 	}
-	updateExcite(updated){
-		let changed = false
-		for(let i=0; i<this.reciever.nodes.length; i++){
-			let prevAct = this.activations[i]
-			this.activations[i] = 0
-			for(let s of this.syns[i]){
-				this.activations[i] += this.sender.nodes[s.otherSide].Act*s.Wt*this.GScale
+	send(updated){
+		if(this.type !== "CTtoCtxt"){
+			let changed = false
+			for(let i=0; i<this.reciever.nodes.length; i++){
+				let prevAct = this.excitations[i]
+				this.excitations[i] = 0
+				for(let s of this.syns[i]){
+					this.excitations[i] += this.sender.nodes[s.otherSide].Act*s.Wt*this.GScale
+				}
+				if(abs(prevAct-this.excitations[i]) > activationChangeThreshold) changed = true
 			}
-			if(abs(prevAct-this.activations[i]) > activationChangeThreshold) changed = true
+			console.log("path send "+this.name)
+			if(changed) updated.add(this.reciever)
 		}
-		console.log("path updateExcite "+this.name)
-		if(changed) updated.add(this.reciever)
 	}
-	updateCtxtGe(updated){ // done at end of quarter
+	/** only for CTtoCtxt type. done at end of quarter */
+	sendCtxtGe(){
 		for(let i=0; i<this.reciever.nodes.length; i++){
+			this.excitations[i] = 0
 			for(let s of this.syns[i]){
-				this.activations[i] += this.sender.nodes[s.otherSide].deepBurst*s.Wt*this.GScale
+				this.excitations[i] += this.sender.nodes[s.otherSide].deepBurst*s.Wt*this.GScale
 			}
 		}
-		console.log("path updateCtxtGe "+this.name)
+		console.log("path sendCtxtGe "+this.name)
 	}
 	doLern(){
 		for(let i=0; i<this.reciever.nodes.length; i++){
@@ -194,8 +202,13 @@ class Path{
 		console.log("path doLern "+this.name)
 	}
 }
+class Pool{
+	maxAct = 0
+	avgAct = 0
+}
 class Layer{
 	nodes = []
+	pools = []
 	/** paths that send to this layer */
 	sendingPaths = []
 	/** paths that recieve from this layer */
@@ -203,7 +216,7 @@ class Layer{
 	constructor({name,type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
 		this.name = name ?? "unnamed"
 		/**
-		 * type can be: super, input, target
+		 * type can be: super, input, target, deepCt, pulvinar, 
 		*/
 		this.type = type ?? "super"
 		/**
@@ -218,8 +231,10 @@ class Layer{
 						this.nodes.push(new Ne(x,y,z))
 					}
 				}
+				this.pools.push(new Pool())
 			}
 		}
+		this.bigPool = new Pool()
 		/**
 		 * used for type of input and target
 		 * if type is target, inputObj should be expected output
@@ -236,13 +251,50 @@ class Layer{
 		this.gbar = gbar ?? {gbarE: 1, gbarL: 0.1, gbarI: 1}
 	}
 	/** update Ge of nodes */
-	updateExcite(){
+	recieveFromPath(quarter){
+		switch(this.type){
+			case "pulvinar":{
+				if(quarter === 4){
+					for(let p of this.sendingPaths){//todo: add class for driver
+						if(p.isDriver){
+							const driverLayer = p.driverLayer, isSuper = driverLayer.type === "super"
+							const drvAct = driverLayer.bigPool.maxAct, drvInhib = min(drvAct/0.6, 1)
+							// only if this layer is 2d and driver layer is 4d
+							for(let x=0; x<driverLayer.w0; x++){
+								for(let y=0; y<driverLayer.w1; y++){
+									let maxDrvAct = 0, avgDrvAct = 0
+									let maxActPool = this.pools[x*this.w1+y].maxAct
+									for(let z=0; z<driverLayer.w2; z++){
+										for(let w=0; w<driverLayer.w3; w++){
+											let pi = w*driverLayer.w0+z
+											let pni = pi*driverLayer.w2*driverLayer.w3 + x*driverLayer.w0+y // what does this mean?
+											let drvAct = (isSuper ? driverLayer.nodes[pni].deepBurst : driverLayer.nodes[pni].Act) / max(maxActPool, 0.1)
+											maxDrvAct = max(maxDrvAct, drvAct)
+											avgDrvAct += drvAct
+										}
+									}
+									avgDrvAct /= driverLayer.w2*driverLayer.w3
+									if(maxActPool <= 0.5) avgDrvAct = 0
+									let tni = p.offset + x*driverLayer.w0+y
+									// todo: maybe add binary option
+									let drvGe = (avgDrvAct+this.maxAndAvgMix*(maxDrvAct-avgDrvAct)) * 0.3
+									let thisNode = this.nodes[tni]
+									thisNode.Ge = /*(1-drvInhib)*thisNode.Ge +*/ drvGe
+								}
+							}
+						}
+					}
+				}else break
+				return
+			}
+		}
+		// default vvv
 		for(let i=0; i<this.nodes.length; i++){
 			this.nodes[i].Ge = 0
 		}
 		for(let p of this.sendingPaths){
 			for(let i=0; i<this.nodes.length; i++){
-				this.nodes[i].Ge += p.activations[i]
+				this.nodes[i].Ge += p.excitations[i]
 			}
 		}
 	}
@@ -265,7 +317,7 @@ class Layer{
 				let GiForPool = this.inhibGainForPool * avgGePool+this.maxAndAvgMix*(maxGePool-avgGePool)
 				for(let z=0; z<this.w2; z++){
 					for(let w=0; w<this.w3; w++){
-						this.getNode(x,y,z,w).Gi = GiForPool
+						this.getNode(x,y,z,w).Gi = GiForPool //todo: use pools
 					}
 				}
 			}
@@ -277,12 +329,36 @@ class Layer{
 		}
 		// todo: add feedback inhib
 	}
+	updateMaxAndAvgAct(){
+		let maxAct = 0, avgAct = 0
+		for(let x=0; x<this.w0; x++){
+			for(let y=0; y<this.w1; y++){
+				let maxActPool = 0, avgActPool = 0
+				for(let z=0; z<this.w2; z++){
+					for(let w=0; w<this.w3; w++){
+						let n = this.getNode(x,y,z,w)
+						maxAct = max(maxAct,n.Act)
+						avgAct += n.Act
+						maxActPool = max(maxAct,n.Act)
+						avgActPool += n.Act
+					}
+				}
+				avgActPool /= this.w2*this.w3
+				let pool = this.pools[x*this.w1+y]
+				pool.maxAct = maxActPool
+				pool.avgAct = avgActPool
+			}
+		}
+		avgAct /= this.w0*this.w1*this.w2*this.w3
+		this.bigPool.maxAct = maxAct
+		this.bigPool.avgAct = avgAct
+	}
 	/**
 	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
 	 * @returns true if any activation changes enough
 	 */
-	tick(phase){
-		this.updateExcite()
+	tick(phase,quarter){
+		this.recieveFromPath(quarter)
 		if(this.type === "input"){
 			for(let i=0; i<this.nodes.length; i++){
 				this.nodes[i].Ge = this.inputObj[i]
@@ -304,13 +380,13 @@ class Layer{
 	}
 	cycleEnd(updated){
 		switch(this.type){
-			case "deepCt":{
+			case "deepCt":{ //todo: move these to quarterEnd and only do if needed
 				for(let i=0; i<this.nodes.length; i++){
 					this.nodes[i].deepBurst = this.nodes[i].Act
 				}
 				break
 			}
-			case "super":{
+			case "super":{ //todo: move these to quarterEnd and only do if needed
 				let maxAct = 0, avgAct = 0
 				for(let x=0; x<this.w0; x++){
 					for(let y=0; y<this.w1; y++){
@@ -332,10 +408,10 @@ class Layer{
 			}
 		}
 		for(let p of this.recievingPaths){
-			p.updateExcite(updated)
+			p.send(updated)
 		}
 	}
-	quarterEnd(phase,updated){
+	quarterEnd(phase,quarter){
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
 			if(phase === 0){
@@ -345,15 +421,15 @@ class Layer{
 			}
 		}
 		switch(this.type){
-			case "deepSuper":{
+			case "super":{
 				for(let p of this.recievingPaths){
-					p.updateCtxtGe(updated)
+					if(p.type === "CTtoCtxt") p.sendCtxtGe()
 				}
 				break
 			}
 			case "deepCt":{
 				for(let p of this.recievingPaths){
-					p.updateCtxtGe(updated)
+					if(p.type === "CTtoCtxt") p.sendCtxtGe()
 				}
 				break
 			}
@@ -375,12 +451,16 @@ class Network{
 	inputLayers = []
 	/**
 	 * @param {0 | 1} phase 0 for minus phase, 1 for plus phase
+	 * @param {0 | 1 | 2 | 3} quarter
 	 */
-	tickPhase(phase){
+	tickPhase(phase,quarter){
 		let updated = new Set(this.layers), nextUpdated = new Set()
 		while(updated.size){
 			for(let l of updated){
-				l.tick(phase)
+				l.tick(phase,quarter)
+			}
+			for(let l of updated){
+				l.updateMaxAndAvgAct()
 			}
 			for(let l of this.layers/*todo: maybe change to updated*/){
 				l.cycleEnd(nextUpdated)
@@ -391,14 +471,14 @@ class Network{
 			nextUpdated = temp
 		}
 		for(let l of this.layers){
-			l.quarterEnd(phase)
+			l.quarterEnd(phase,quarter)
 		}
 	}
 	tick(){
 		console.log("p 0")
-		this.tickPhase(0)
+		this.tickPhase(0,1)
 		console.log("p 1")
-		this.tickPhase(1)
+		this.tickPhase(1,3)
 		for(let l of this.layers){
 			for(let n of l.nodes){
 				n.updateLernAvgsAtTrialEnd()
