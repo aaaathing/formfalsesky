@@ -97,10 +97,13 @@ class Path{
 	GScale = 1
 	constructor({name, sender, reciever, type, lernRate, shape}){
 		this.name = name ?? "unnamed"
+		/** @type {LayerBase} */
 		this.reciever = reciever
+		/** @type {LayerBase} */
 		this.sender = sender
 		/**
-		 * can be: normal, CTtoCtxt
+		 * can be: normal, CTtoCtxt, TDPredict
+		 * TDPredict is linear and has no weight balance, momentum, normalize
 		 */
 		this.type = type ?? "normal"
 		/**
@@ -159,7 +162,7 @@ class Path{
 				case "CTtoCtxt":
 					const isSuper = this.sender.type === "super"
 					for(let s of this.syns[i]){
-						const sact = isSuper ? this.sender.nodes[s.otherSide].deepBurstPrev : this.sender.nodes[s.otherSide].ActM /*more correct if it is Q0*/
+						const sact = isSuper ? this.sender.nodes[s.otherSide].deepBurstPrev : this.sender.nodes[s.otherSide].ActM /*more correct if it is ActQ0*/
 						let srs = sact * Recv.AvgSLrn
 						let srm = sact * Recv.AvgM
 						let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
@@ -169,6 +172,15 @@ class Path{
 						s.LWt = max(min(s.LWt, 1),0)
 						s.Wt = Sig(s.LWt)
 						totalWeight += s.Wt
+					}
+					break
+				case "TDPredict":
+					const da = this.reciever.modulatorDopmin
+					for(let s of this.syns[i]){
+						const Send = this.sender.nodes[s.otherSide]
+						let dwt = da * Send.ActM /*more correct if it is ActQ0*/
+						s.LWt += dwt*lernRate
+						s.Wt = s.LWt // linear and no limits
 					}
 					break
 				default:
@@ -196,12 +208,6 @@ class Path{
 		console.log("path doLern "+this.name)
 	}
 }
-class Driver{
-	driverLayer
-	constructor(driverLayer){
-		this.driverLayer = driverLayer
-	}
-}
 class Pool{
 	maxAct = 0
 	avgAct = 0
@@ -215,9 +221,10 @@ class LayerBase{
 	/** paths that recieve from this layer */
 	recievingPaths = []
 	/**
-	 * type can be: super, input, target, deepCT, deepPulvinar, deepTRN, TDPredict, TDIntegrate, TDDopamnSignal
+	 * type can be: super, input, target, deepCT, deepPulvinar, deepTRN, TDPredict, TDIntegrate, TDDopminSignal
 	*/
 	type
+	modulatorDopmin = 0
 	constructor({name,w0,w1,w2,w3,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
 		this.name = name ?? "unnamed"
 		/**
@@ -326,10 +333,10 @@ class LayerBase{
 			this.updateInhib()
 		}
 
-		this.updateActivations()
+		this.updateActivations(phase,quarter)
 		console.log("layer tick "+this.name)
 	}
-	updateActivations(){
+	updateActivations(phase,quarter){
 		// update activations
 		const erev = this.erev, gbar = this.gbar
 		for(let i=0; i<this.nodes.length; i++){
@@ -453,13 +460,13 @@ Layer.deepCT = class extends LayerBase{
 }
 Layer.deepPulvinar = class extends LayerBase{
 	type = "deepPulvinar"
-	/** @type {Array<Driver>} */
+	/** @type {Array<Layer>} */
 	drivers = []
 	recieveFromPath(phase,quarter){
 		if(quarter === 4){
 			let offset = 0
-			for(let p of this.drivers){
-				const driverLayer = p.driverLayer, isSuper = driverLayer.type === "super"
+			for(let driverLayer of this.drivers){
+				const isSuper = driverLayer.type === "super"
 				const drvAct = driverLayer.bigPool.maxAct, drvInhib = min(drvAct/0.6, 1)
 				// only if this layer is 2d and driver layer is 4d or 2d
 				for(let z=0; z<driverLayer.w2; z++){
@@ -495,7 +502,7 @@ Layer.deepTRN = class extends LayerBase{
 
 Layer.TDPredict = class extends LayerBase{
 	type = "TDPredict"
-	updateActivations(){
+	updateActivations(phase,quarter){
 		if(phase === 1){
 			for(let i=0; i<this.nodes.length; i++){
 				this.nodes[i].Act = this.nodes[i].Ge // plus phase
@@ -509,6 +516,46 @@ Layer.TDPredict = class extends LayerBase{
 		}
 	}
 }
+Layer.TDIntegrate = class extends LayerBase{
+	type = "TDIntegrate"
+	constructor({TDPredictLayer,discount}){
+		super(...arguments)
+		this.TDPredictLayer = TDPredictLayer
+		this.discount = discount ?? 0.9
+	}
+	updateActivations(phase,quarter){
+		const ActP = this.TDPredictLayer.nodes[0].ActP
+		const Act = this.TDPredictLayer.nodes[0].Act
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].Act = phase === 1 ? this.nodes[i].Ge + Act*this.discount : ActP
+			// n.updateLernAvgs()
+		}
+	}
+}
+Layer.TDDopminSignal = class extends LayerBase{
+	type = "TDDopminSignal"
+	constructor({TDIntegrateLayer, sendTo}){
+		super(...arguments)
+		this.TDIntegrateLayer = TDIntegrateLayer
+		this.sendTo = sendTo
+	}
+	updateActivations(phase,quarter){
+		const da = this.TDIntegrateLayer.nodes[0].Act - this.TDIntegrateLayer.nodes[0].ActM
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].Act = phase === 1 ? da : 0
+			// n.updateLernAvgs()
+		}
+	}
+	cycleEnd(){
+		const da = this.this.nodes[0].Act
+		this.modulatorDopmin = da
+		for(let l of this.sendTo){
+			l.modulatorDopmin = da
+		}
+		super.cycleEnd(...arguments)
+	}
+}
+
 
 class Network{
 	/** @type {Array<Path>} */
