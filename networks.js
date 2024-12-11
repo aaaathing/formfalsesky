@@ -72,34 +72,12 @@ class Ne{
 		//this.Ge += speed * (1/1.4) * ((excite/this.syns.length) - this.Ge)
 		this.Ge = excite
 	}*/
-	/*updateInhib(inhibRadius){
-	}*/
-	updateActive(erev,gbar){
-		//this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
-		//this.Vm += this.Inet (1/3.3) * this.Inet
-		/*this.Vm = this.Ge * erev.erevE + gbar.gbarL * erev.erevL + this.Gi * erev.erevI
-		this.Vm = min(max(this.Vm,0),2)*/
-		let newAct
-		/*if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
-			newAct = contrast(this.Vm-XX1threshold + Math.random()*0.01)
-		}else{*/
-		let geThr = (this.Gi * (erev.erevI - XX1threshold) + gbar.gbarL * (erev.erevL - XX1threshold)) / (XX1threshold - erev.erevE)
-		newAct = contrast(this.Ge-geThr + Math.random()*0.01)
-		
-		this.Act = newAct /*(1/3.3) * (newAct-this.Act)*/
-	}
 	/*updateLernAvgs(){
 		this.AvgSS += (1/2)*(this.Act-this.AvgSS)
 		this.AvgS += (1/2)*(this.AvgSS-this.AvgS)
 		this.AvgM += (1/10)*(this.AvgS-this.AvgM)
 		this.AvgSLrn = (1-0.1) * this.AvgS + 0.1 * this.AvgM
 	}*/
-	updateLernAvgsAtMinusPhaseEnd(){
-		this.ActM = this.Act
-	}
-	updateLernAvgsAtPlusPhaseEnd(){
-		this.ActP = this.Act
-	}
 	updateLernAvgsAtTrialEnd(){
 		this.AvgSLrn = (1-0.1) * this.ActP + 0.1 * this.ActM // approximation of updateLernAvgs
 		this.AvgM = this.ActP*0.5+this.ActM*0.5 //approximation
@@ -187,9 +165,9 @@ class Path{
 						let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
 						//todo: maybe normalize dwt
 						//todo: maybe balance
-						this.LWt += dwt*lernRate
-						this.LWt = max(min(this.LWt, 1),0)
-						this.Wt = Sig(this.LWt)
+						s.LWt += dwt*lernRate
+						s.LWt = max(min(s.LWt, 1),0)
+						s.Wt = Sig(s.LWt)
 						totalWeight += s.Wt
 					}
 					break
@@ -201,16 +179,16 @@ class Path{
 						let dwt = XCAL(srs, srm) + Recv.AvgLLrn * XCAL(srs, Recv.AvgL)
 						//todo: maybe normalize dwt
 						//todo: maybe balance
-						this.LWt += dwt*lernRate
-						this.LWt = max(min(this.LWt, 1),0)
-						this.Wt = Sig(this.LWt)
+						s.LWt += dwt*lernRate
+						s.LWt = max(min(s.LWt, 1),0)
+						s.Wt = Sig(s.LWt)
 						totalWeight += s.Wt
 					}
 			}
 			if(totalWeight < XX1threshold){ // increase weight if not enough
 				let diff = (XX1threshold-totalWeight)/this.syns[i].length
 				for(let s of this.syns[i]){
-					s.Wt += diff + Math.random()*0.05
+					s.Wt += diff + Math.random() * 0.1-0.05
 					s.LWt = SigInv(s.Wt)
 				}
 			}
@@ -228,19 +206,20 @@ class Pool{
 	maxAct = 0
 	avgAct = 0
 }
-class Layer{
+const Layer = {}
+class LayerBase{
 	nodes = []
 	pools = []
 	/** paths that send to this layer */
 	sendingPaths = []
 	/** paths that recieve from this layer */
 	recievingPaths = []
-	constructor({name,type,w0,w1,w2,w3,inputObj,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
+	/**
+	 * type can be: super, input, target, deepCT, deepPulvinar, deepTRN, TDPredict, TDIntegrate, TDDopamnSignal
+	*/
+	type
+	constructor({name,w0,w1,w2,w3,inhibGainForLayer,inhibGainForPool,maxAndAvgMix,erev,gbar}){
 		this.name = name ?? "unnamed"
-		/**
-		 * type can be: super, input, target, deepCT, deepPulvinar, deepTRN
-		*/
-		this.type = type ?? "super"
 		/**
 		 * w0 and w1 for amount of pools
 		 * w2 and w3 for amount of nodes in pools
@@ -260,12 +239,7 @@ class Layer{
 			}
 		}
 		this.bigPool = new Pool()
-		/**
-		 * used for type of input and target
-		 * if type is target, inputObj should be expected output
-		 * @type {Array<number>}
-		 */
-		this.inputObj = inputObj ?? null
+		
 		this.inhibGainForPool = inhibGainForPool ?? 0
 		this.inhibGainForLayer = inhibGainForLayer ?? 1
 
@@ -274,48 +248,9 @@ class Layer{
 		// info: https://github.com/emer/leabra/blob/main/chans/chans.go
 		this.erev = erev ?? {erevE:1, erevL:0.3, erevI: 0.25}
 		this.gbar = gbar ?? {gbarE: 1, gbarL: 0.1, gbarI: 1}
-
-		if(this.type === "deepPulvinar"){
-			/** @type {Array<Driver>} */
-			this.drivers = []
-		}
 	}
 	/** update Ge of nodes */
-	recieveFromPath(quarter){
-		switch(this.type){
-			case "deepPulvinar":{
-				if(quarter === 4){
-					let offset = 0
-					for(let p of this.drivers){
-						const driverLayer = p.driverLayer, isSuper = driverLayer.type === "super"
-						const drvAct = driverLayer.bigPool.maxAct, drvInhib = min(drvAct/0.6, 1)
-						// only if this layer is 2d and driver layer is 4d or 2d
-						for(let z=0; z<driverLayer.w2; z++){
-							for(let w=0; w<driverLayer.w3; w++){
-								let maxDrvAct = 0, avgDrvAct = 0
-								for(let x=0; x<driverLayer.w0; x++){
-									for(let y=0; y<driverLayer.w1; y++){
-										let pi = x*driverLayer.w1+y
-										let pool = driverLayer.pools[pi]
-										let pni = (pi*driverLayer.w2 + w)*driverLayer.w3 + z
-										let drvAct = (isSuper ? driverLayer.nodes[pni].deepBurst : driverLayer.nodes[pni].Act) / max(pool.maxAct, 0.1)
-										maxDrvAct = max(maxDrvAct, drvAct)
-										//if(pool.maxAct > 0.5)
-										avgDrvAct += drvAct
-									}
-								}
-								avgDrvAct /= driverLayer.w0*driverLayer.w1
-								// todo: maybe add binary option
-								let drvGe = (avgDrvAct+this.maxAndAvgMix*(maxDrvAct-avgDrvAct)) * 0.3
-								this.nodes[offset + z*driverLayer.w4+w].Ge = drvGe /* + (1-drvInhib)*thisNode.Ge*/
-							}
-						}
-						offset += driverLayer.w2*driverLayer.w3
-					}
-				}else break
-				return
-			}
-		}
+	recieveFromPath(phase,quarter){
 		// default vvv
 		for(let i=0; i<this.nodes.length; i++){
 			this.nodes[i].Ge = 0
@@ -386,42 +321,34 @@ class Layer{
 	 * @returns true if any activation changes enough
 	 */
 	tick(phase,quarter){
-		this.recieveFromPath(quarter)
-		if(this.type === "input"){
-			for(let i=0; i<this.nodes.length; i++){
-				this.nodes[i].Ge = this.inputObj[i]
-			}
-		}
-		if(this.type === "target" && phase === 1){
-			for(let i=0; i<this.nodes.length; i++){
-				this.nodes[i].Ge = this.inputObj[i]
-			}
-		}
+		this.recieveFromPath(phase,quarter)
 		if(this.inhibGainForLayer || this.inhibGainForPool){
 			this.updateInhib()
 		}
-		for(let i=0; i<this.nodes.length; i++){
-			let n = this.nodes[i]
-			n.updateActive(this.erev,this.gbar)
-		}
+
+		this.updateActivations()
 		console.log("layer tick "+this.name)
 	}
-	cycleEnd(updated){
-		switch(this.type){
-			case "deepCT":{ //todo: only do if needed
-				for(let i=0; i<this.nodes.length; i++){
-					this.nodes[i].deepBurst = this.nodes[i].Act
-				}
-				break
-			}
-			case "super":{ //todo: only do if needed
-				let threshold = max(this.bigPool.avgAct + this.maxAndAvgMix*(this.bigPool.maxAct-this.bigPool.avgAct), 0.1)
-				for(let i=0; i<this.nodes.length; i++){
-					this.nodes[i].deepBurst = this.nodes[i].Act > threshold ? this.nodes[i].Act : 0
-				}
-				break
-			}
+	updateActivations(){
+		// update activations
+		const erev = this.erev, gbar = this.gbar
+		for(let i=0; i<this.nodes.length; i++){
+			let n = this.nodes[i]
+			//this.Inet = this.Ge * (erevE - this.Vm) + gbarL * (erevL - this.Vm) + this.Gi * (erevI - this.Vm) //+ Math.random()
+			//this.Vm += this.Inet (1/3.3) * this.Inet
+			/*this.Vm = this.Ge * erev.erevE + gbar.gbarL * erev.erevL + this.Gi * erev.erevI
+			this.Vm = min(max(this.Vm,0),2)*/
+			let newAct
+			/*if(this.Act < XX1vmActiveThreshold && this.Vm <= XX1threshold){
+				newAct = contrast(this.Vm-XX1threshold + Math.random()*0.01)
+			}else{*/
+			let geThr = (n.Gi * (erev.erevI - XX1threshold) + gbar.gbarL * (erev.erevL - XX1threshold)) / (XX1threshold - erev.erevE)
+			newAct = contrast(n.Ge-geThr + Math.random()*0.01)
+			n.Act = newAct /*(1/3.3) * (newAct-this.Act)*/
+			// n.updateLernAvgs()
 		}
+	}
+	cycleEnd(updated){
 		for(let p of this.recievingPaths){
 			p.send(updated)
 		}
@@ -430,28 +357,9 @@ class Layer{
 		for(let i=0; i<this.nodes.length; i++){
 			let n = this.nodes[i]
 			if(phase === 0){
-				n.updateLernAvgsAtMinusPhaseEnd()
+				n.ActM = n.Act
 			}else{
-				n.updateLernAvgsAtPlusPhaseEnd()
-			}
-		}
-		switch(this.type){
-			case "super":{
-				for(let p of this.recievingPaths){
-					if(p.type === "CTtoCtxt"){
-						p.sendCtxtGe()
-						for(let i=0; i<this.nodes.length; i++){
-							this.nodes[i].deepBurstPrev = this.nodes[i].deepBurst
-						}
-					}
-				}
-				break
-			}
-			case "deepCT":{
-				for(let p of this.recievingPaths){
-					if(p.type === "CTtoCtxt") p.sendCtxtGe()
-				}
-				break
+				n.ActP = n.Act
 			}
 		}
 	}
@@ -462,6 +370,146 @@ class Layer{
 		return ((x*this.w1+y)*this.w2+z)*this.w3+w
 	}
 }
+
+Layer.input = class extends LayerBase{
+	type = "input"
+	constructor({inputObj}){
+		super(...arguments)
+		/**
+		 * inputObj here should be input
+		 * @type {Array<number>}
+		 */
+		this.inputObj = inputObj ?? null
+	}
+	tick(phase,quarter){
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].Ge = this.inputObj[i]
+		}
+		super.tick(...arguments)
+	}
+	recieveFromPath(){}
+}
+Layer.target = class extends LayerBase{
+	type = "target"
+	constructor({inputObj}){
+		super(...arguments)
+		/**
+		 * inputObj here should be expected output
+		 * @type {Array<number>}
+		 */
+		this.inputObj = inputObj ?? null
+	}
+	tick(phase,quarter){
+		if(phase === 1){
+			for(let i=0; i<this.nodes.length; i++){
+				this.nodes[i].Ge = this.inputObj[i]
+			}
+		}
+		super.tick(...arguments)
+	}
+	recieveFromPath(phase,quarter){
+		if(phase !== 1) super.recieveFromPath(...arguments)
+	}
+}
+
+Layer.super = class extends LayerBase{
+	type = "super"
+	cycleEnd(){
+		//todo: only do if needed
+		let threshold = max(this.bigPool.avgAct + this.maxAndAvgMix*(this.bigPool.maxAct-this.bigPool.avgAct), 0.1)
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].deepBurst = this.nodes[i].Act > threshold ? this.nodes[i].Act : 0
+		}
+		super.cycleEnd(...arguments)
+	}
+	quarterEnd(phase,quarter){
+		for(let p of this.recievingPaths){
+			if(p.type === "CTtoCtxt"){
+				p.sendCtxtGe()
+				for(let i=0; i<this.nodes.length; i++){
+					this.nodes[i].deepBurstPrev = this.nodes[i].deepBurst
+				}
+			}
+		}
+		super.quarterEnd(...arguments)
+	}
+}
+
+Layer.deepCT = class extends LayerBase{
+	type = "deepCT"
+	cycleEnd(){
+		//todo: only do if needed
+		for(let i=0; i<this.nodes.length; i++){
+			this.nodes[i].deepBurst = this.nodes[i].Act
+		}
+		super.cycleEnd(...arguments)
+	}
+	quarterEnd(phase,quarter){
+		for(let p of this.recievingPaths){
+			if(p.type === "CTtoCtxt") p.sendCtxtGe()
+		}
+		super.quarterEnd(...arguments)
+	}
+}
+Layer.deepPulvinar = class extends LayerBase{
+	type = "deepPulvinar"
+	/** @type {Array<Driver>} */
+	drivers = []
+	recieveFromPath(phase,quarter){
+		if(quarter === 4){
+			let offset = 0
+			for(let p of this.drivers){
+				const driverLayer = p.driverLayer, isSuper = driverLayer.type === "super"
+				const drvAct = driverLayer.bigPool.maxAct, drvInhib = min(drvAct/0.6, 1)
+				// only if this layer is 2d and driver layer is 4d or 2d
+				for(let z=0; z<driverLayer.w2; z++){
+					for(let w=0; w<driverLayer.w3; w++){
+						let maxDrvAct = 0, avgDrvAct = 0
+						for(let x=0; x<driverLayer.w0; x++){
+							for(let y=0; y<driverLayer.w1; y++){
+								let pi = x*driverLayer.w1+y
+								let pool = driverLayer.pools[pi]
+								let pni = (pi*driverLayer.w2 + w)*driverLayer.w3 + z
+								let drvAct = (isSuper ? driverLayer.nodes[pni].deepBurst : driverLayer.nodes[pni].Act) / max(pool.maxAct, 0.1)
+								maxDrvAct = max(maxDrvAct, drvAct)
+								//if(pool.maxAct > 0.5)
+								avgDrvAct += drvAct
+							}
+						}
+						avgDrvAct /= driverLayer.w0*driverLayer.w1
+						// todo: maybe add binary option
+						let drvGe = (avgDrvAct+this.maxAndAvgMix*(maxDrvAct-avgDrvAct)) * 0.3
+						this.nodes[offset + z*driverLayer.w4+w].Ge = drvGe /* + (1-drvInhib)*thisNode.Ge*/
+					}
+				}
+				offset += driverLayer.w2*driverLayer.w3
+			}
+		}else{
+			super.recieveFromPath(...arguments)
+		}
+	}
+}
+Layer.deepTRN = class extends LayerBase{
+	type = "deepTRN"
+}
+
+Layer.TDPredict = class extends LayerBase{
+	type = "TDPredict"
+	updateActivations(){
+		if(phase === 1){
+			for(let i=0; i<this.nodes.length; i++){
+				this.nodes[i].Act = this.nodes[i].Ge // plus phase
+				// n.updateLernAvgs()
+			}
+		}else{
+			for(let i=0; i<this.nodes.length; i++){
+				this.nodes[i].Act = this.nodes[i].ActP // previous plus phase
+				// n.updateLernAvgs()
+			}
+		}
+	}
+}
+
 class Network{
 	/** @type {Array<Path>} */
 	paths = []
@@ -507,7 +555,7 @@ class Network{
 		for(let p of this.paths) p.doLern()
 	}
 	addLayer(o){
-		let l = new Layer(o)
+		let l = new Layer[o.type](o)
 		this.layers.push(l)
 		if(l.type === "input" || l.type === "target") this.inputLayers.push(l)
 		return l
