@@ -3,8 +3,8 @@ module thiscod
 go 1.23.4
 
 require (
-	cogentcore.org/core v0.3.7
-	github.com/emer/emergent/v2 v2.0.0-dev0.1.7
+	cogentcore.org/core v0.3.5
+	github.com/emer/emergent/v2 v2.0.0-dev0.1.6
 	github.com/emer/leabra/v2 v2.0.0-dev0.5.5
 )
 

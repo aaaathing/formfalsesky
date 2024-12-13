@@ -1,3 +1,5 @@
+cogentcore.org/core v0.3.5 h1:qTW/+GSUbeYYCSi29zdAQ/fnjWg2/E/aTbAMbfAFGfI=
+cogentcore.org/core v0.3.5/go.mod h1:q3OrXihYG2aTE2oG785ad5b6aJ3wzSCXeeD2SSLKWIE=
 cogentcore.org/core v0.3.6-0.20241125091405-29e40fa36d9b/go.mod h1:q3OrXihYG2aTE2oG785ad5b6aJ3wzSCXeeD2SSLKWIE=
 cogentcore.org/core v0.3.7-0.20241209071130-fd5749020b08 h1:frWskDXZyjO2LFpx0Ur/56zQQEH8KQ0SiUSaJULkiN0=
 cogentcore.org/core v0.3.7-0.20241209071130-fd5749020b08/go.mod h1:P5sOFH1GF4z7Sir+cVo8AmpSp7TKCehAmIsZ2w4DNro=
@@ -14,6 +16,8 @@ github.com/cogentcore/yaegi v0.0.0-20240724064145-e32a03faad56/go.mod h1:+MGpZ0s
 github.com/coreos/go-oidc/v3 v3.10.0/go.mod h1:5j11xcw0D3+SGxn6Z/WFADsgcWVMyNAlSQupk0KK3ac=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/d4l3k/messagediff v1.2.2-0.20190829033028-7e0a312ae40b/go.mod h1:Oozbb1TVXFac9FtSIxHBMnBCq2qeH/2KkEQxENCrlLo=
+github.com/emer/emergent/v2 v2.0.0-dev0.1.6 h1:0Bu141YCDOgA44k3eBctMghg0ZXPsd5zcLKEHIZVlYQ=
+github.com/emer/emergent/v2 v2.0.0-dev0.1.6/go.mod h1:9QhWnj/IHq/TrVzcXsC96GlC1Gg/pK0pwMI5sZr+/yU=
 github.com/emer/emergent/v2 v2.0.0-dev0.1.7.0.20241201091049-2bf1680528df h1:mYQPr9cA5hrcnXe/ZBL4eShmo9hXH/Jn2O0EIHE0Lp0=
 github.com/emer/emergent/v2 v2.0.0-dev0.1.7.0.20241201091049-2bf1680528df/go.mod h1:mW3FS2fPR2gdVu+oXmri3Rw6hDgBz+JUFZf7+4WJL0E=
 github.com/ergochat/readline v0.1.2 h1:zxiwQB8DyTLD0HSWthJlnvs5E2X1qnyXZ44RFf1jRlg=
