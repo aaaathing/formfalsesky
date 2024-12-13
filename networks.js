@@ -556,6 +556,14 @@ Layer.TDDopminSignal = class extends LayerBase{
 	}
 }
 
+Layer.pbwmMatrix = class extends LayerBase{
+	type = "pbwmMatrix"
+	updateInhib(){
+		
+		super.updateInhib(...arguments)
+	}
+}
+
 
 class Network{
 	/** @type {Array<Path>} */
