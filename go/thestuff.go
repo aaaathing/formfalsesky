@@ -1,26 +1,26 @@
 package main
 
 import (
-	/*"github.com/emer/emergent/v2/econfig"
-	"github.com/emer/emergent/v2/egui"
-	"github.com/emer/emergent/v2/elog"
-	"github.com/emer/emergent/v2/env"
-	"github.com/emer/emergent/v2/estats"
-	"github.com/emer/emergent/v2/etime"
-	"github.com/emer/emergent/v2/looper"
-	"github.com/emer/emergent/v2/netview"
-	"github.com/emer/emergent/v2/patgen"*/
+	"fmt"
+	"time"
+
+	"cogentcore.org/core/math32"
 	"cogentcore.org/core/tensor"
+	"github.com/emer/emergent/v2/egui"
 	"github.com/emer/emergent/v2/emer"
 	"github.com/emer/emergent/v2/etime"
+	"github.com/emer/emergent/v2/netview"
 	"github.com/emer/emergent/v2/params"
 	"github.com/emer/emergent/v2/paths"
 	"github.com/emer/leabra/v2/leabra"
 )
 
+const useGUI = true
+
 var Net *leabra.Network
-var Params *emer.NetParams
-var pats tensor.Tensor
+var Params = new(emer.NetParams)
+var GUI = new(egui.GUI)
+var ViewUpdate = new(netview.ViewUpdate)
 
 // ParamSets is the default set of parameters.
 // Base is always applied, and others can be optionally
@@ -70,19 +70,18 @@ var ParamSets = params.Sets{
 	},
 }
 
-func stuff() {
+func initIt() {
 	Net = leabra.NewNetwork("thestuff")
 
 	Net.SetRandSeed(0) // init new separate random seed, using run = 0
 
 	inp := Net.AddLayer2D("Input", 2, 2, leabra.InputLayer)
-	inp.Doc = "Input represents sensory input, coming into the cortex via tha thalamus"
 	hid1 := Net.AddLayer2D("Hidden1", 5, 5, leabra.SuperLayer)
-	hid1.Doc = "First hidden layer performs initial internal processing of sensory inputs, transforming in preparation for producing appropriate responses"
+	hid1.AsEmer().PlaceRightOf(inp, 1)
 	hid2 := Net.AddLayer2D("Hidden2", 5, 5, leabra.SuperLayer)
-	hid2.Doc = "Another 'deep' layer of internal processing to prepare directly for Output response"
+	hid2.PlaceRightOf(hid1, 1)
 	out := Net.AddLayer2D("Output", 2, 2, leabra.TargetLayer)
-	out.Doc = "Output represents motor output response, via deep layer 5 neurons projecting supcortically, in motor cortex"
+	out.PlaceRightOf(hid2, 1)
 
 	// use this to position layers relative to each other
 	// hid2.PlaceRightOf(hid1, 2)
@@ -102,8 +101,6 @@ func stuff() {
 	// that would mean that the output layer doesn't reflect target values in plus phase
 	// and thus removes error-driven learning -- but stats are still computed.
 
-	Params = new(emer.NetParams)
-
 	Params.Config(ParamSets, "", "", Net)
 
 	Net.Build()
@@ -113,6 +110,21 @@ func stuff() {
 		Params.SetNetworkMap(Net, Config.Params.Network)
 	}*/
 	Net.InitWeights()
+
+	if useGUI {
+		GUI.MakeBody(nil, "thestuff", "thestuff", `it does stuff`)
+
+		nv := GUI.AddNetView("Network")
+		nv.Options.MaxRecs = 300
+		nv.SetNet(Net)
+		ViewUpdate.Config(nv, etime.AlphaCycle, etime.AlphaCycle)
+		GUI.ViewUpdate = ViewUpdate
+
+		nv.SceneXYZ().Camera.Pose.Pos.Set(0, 2, 2) // more "head on" than default which is more "top down"
+		nv.SceneXYZ().Camera.LookAt(math32.Vec3(0, 0, 0), math32.Vec3(0, 1, 0))
+
+		GUI.FinalizeGUI(false)
+	}
 }
 
 /*
@@ -124,14 +136,14 @@ ls.Loop(etime.Train, etime.Run).OnEnd.Add("SaveWeights", func() {
 */
 
 func input() {
-	lays := Net.LayersByType(leabra.InputLayer, leabra.TargetLayer)
+	var pats = tensor.New[float32]([]int{2, 2})
+	pats.SetFloats([]float64{1, 0, 0, 1})
+	var opats = tensor.New[float32]([]int{2, 2})
+	opats.SetFloats([]float64{0, 0, 0, 0})
+
 	Net.InitExt()
-	for _, lnm := range lays {
-		ly := Net.LayerByName(lnm)
-		if pats != nil {
-			ly.ApplyExt(pats)
-		}
-	}
+	Net.LayerByName("Input").ApplyExt(pats)
+	Net.LayerByName("Output").ApplyExt(opats)
 }
 
 var ctx = leabra.NewContext()
@@ -140,15 +152,45 @@ func loop() {
 	ctx.Mode = etime.Train
 	input()
 	Net.Cycle(ctx)
-	ctx.CycleInc()
 	Net.DWt()
+	if useGUI {
+		ViewUpdate.RecordSyns()
+	}
 	Net.WtFromDWt()
+
+	ctx.CycleInc()
+	if ctx.Cycle == 0 || ctx.Cycle == 100 {
+		ctx.AlphaCycStart()
+		Net.AlphaCycInit(true)
+		ctx.PlusPhase = false
+	}
+	if ctx.Cycle == 0 || ctx.Cycle == 25 || ctx.Cycle == 50 || ctx.Cycle == 75 {
+		Net.QuarterFinal(ctx)
+		ctx.QuarterInc()
+	}
+	if ctx.Cycle == 75 {
+		ctx.PlusPhase = true
+	}
+
+	if useGUI {
+		ViewUpdate.GoUpdate()
+		ViewUpdate.Text = fmt.Sprintf("cycle %d", ctx.Cycle)
+	}
 }
 
+func doLoop() {
+	for {
+		loop()
+		time.Sleep(time.Second / 10)
+	}
+}
 func main() {
-	stuff()
-	pats = tensor.New[float32]([]int{5, 5})
-	pats.SetFloats([]float64{1, 0, 0, 1})
-
-	loop()
+	initIt()
+	println("init")
+	if useGUI {
+		go doLoop()
+		GUI.Body.RunMainWindow()
+	} else {
+		doLoop()
+	}
 }

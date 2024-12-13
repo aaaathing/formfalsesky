@@ -5,6 +5,12 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
+			"name": "Launch certain cmd",
+			"command": "cd go; go run thestuff.go; exit",
+			"request": "launch",
+			"type": "node-terminal"
+		},
+		{
 			"name": "Launch certain Program",
 			"program": "${workspaceFolder}/show-network.js",
 			"request": "launch",
